@@ -1,10 +1,16 @@
-# MimicX-app
+# Mimic X app
 
-**製品名: Mimic X**
+**製品名: Mimic X - smart retro PC HID**
 
-スマートフォン（iOS/Android）からUSB-MIDI経由でマイコンを制御し、レトロPCのHIDデバイス（キーボード・マウス・ジョイスティック）を模倣するFlutterアプリ。
+Mimic X とは、スマートフォン（iOS/Android）からUSB-MIDI経由でマイコンを制御し、レトロPCのHIDデバイス（キーボード・マウス・ジョイスティック）を模倣するハード及びアプリ群です。
+Mimic X appは、Flutterで作られたマルチプラットフォームアプリで、以下のプラットフォームで動作します。
 
-「Mimic X」コントローラーアプリ。様々なレトロデバイスに変身可能。
+* iOS
+* Android
+* macOS
+* Windows
+
+「Mimic X」コントローラーアプリは、様々なレトロデバイスに変身可能です。
 
 ## 機能
 
