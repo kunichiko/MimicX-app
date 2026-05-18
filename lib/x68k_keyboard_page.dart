@@ -16,6 +16,7 @@ import 'midi_service.dart';
 import 'mode_scaffold.dart';
 import 'orientation_helper.dart';
 import 'sjis_encoder.dart';
+import 'windows_ime.dart';
 import 'x68k_shared_state.dart';
 
 // ===========================================================================
@@ -1621,6 +1622,14 @@ class LineInputMode extends ChannelMode {
   Future<void> onEnter(MidiService midi) async {
     // ライン入力は portrait / landscape どちらでも使えるよう向きの固定を解除。
     await OrientationHelper.unlock();
+    // 漢字入力のため Windows IME を有効化する (他モードでは無効)。
+    await WindowsIme.setEnabled(true);
+  }
+
+  @override
+  Future<void> onExit(MidiService midi) async {
+    // 他モード/他画面では IME がキー入力を奪わないよう無効に戻す。
+    await WindowsIme.setEnabled(false);
   }
 
   @override

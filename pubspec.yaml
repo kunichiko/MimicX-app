@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.10+1
+version: 1.0.11+1
 
 environment:
   sdk: ^3.8.1
@@ -44,6 +44,16 @@ dependencies:
     sdk: flutter
   intl: any
   package_info_plus: ^8.0.0
+
+dependency_overrides:
+  # Windows: flutter_midi_command_windows 0.3.0 は短い channel message も
+  # midiOutLongMsg + 即時 midiOutUnprepareHeader で送るためバッファ in-flight
+  # 中に書き換えが起き、winmmbase.dll が SHIFT+A 等の連続キー入力で
+  # 0xC0000005 で落ちる。third_party/flutter_midi_command_windows に
+  # midiOutShortMsg 経路を足したローカルパッチを置いている。
+  # upstream に修正が入り次第このオーバーライドを外す予定。
+  flutter_midi_command_windows:
+    path: third_party/flutter_midi_command_windows
 
 dev_dependencies:
   flutter_test:

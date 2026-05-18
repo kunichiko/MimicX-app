@@ -6,11 +6,16 @@ import 'midi_service.dart';
 import 'protocol.dart';
 import 'joystick_page.dart';
 import 'orientation_helper.dart';
+import 'windows_ime.dart';
 import 'x68k_keyboard_page.dart';
 
 void main() {
   // JoystickSettings はモード毎にインスタンスを持って onEnter で lazy load する。
   // (以前はグローバル singleton をここで preload していた)
+  WidgetsFlutterBinding.ensureInitialized();
+  // Windows: 既定で IME を無効化しておく。ライン入力モードに入ったときだけ
+  // ON にして抜けるときに OFF に戻す。
+  WindowsIme.setEnabled(false);
   runApp(const SmartRetroHidApp());
 }
 
