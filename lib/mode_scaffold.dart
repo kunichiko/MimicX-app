@@ -91,6 +91,10 @@ class _ModeScaffoldState extends State<ModeScaffold> {
       await _current.onExit(widget.midi);
       if (!mounted) return;
       setState(() => _current = next);
+      // 旧モードの TextField 等が握っていた primary focus を一度落とす。
+      // (ExcludeFocus でドロップダウンが focus を持てなくしてあるので、
+      // ここで unfocus すれば次フレームで新 body の autofocus が拾える)。
+      FocusManager.instance.primaryFocus?.unfocus();
       await next.onEnter(widget.midi);
       await _persistSelectedMode(next);
     } finally {
@@ -111,27 +115,34 @@ class _ModeScaffoldState extends State<ModeScaffold> {
     // AppBar・ポップアップともに surface 系の背景なので、テキストとアイコンは
     // onSurface 系で揃える (onPrimary だと dark テーマで暗い青になり潰れる)。
     final colors = Theme.of(context).colorScheme;
-    return DropdownButtonHideUnderline(
-      child: DropdownButton<ChannelMode>(
-        value: _current,
-        dropdownColor: colors.surfaceContainerHigh,
-        iconEnabledColor: colors.onSurface,
-        style: TextStyle(
-          color: colors.onSurface,
-          fontSize: 14,
+    // 戻るボタンと同じ理由で ExcludeFocus でフォーカスチェーンから外す。
+    // ライン入力モード (TextField を持つ) から標準モードに切り替えた直後に
+    // この DropdownButton が primary focus を握り続けてしまい、RETURN キー
+    // でドロップダウンが再展開されたり、X68k 側に RETURN が届かない問題を
+    // 防ぐ。マウスクリックでの切替は focus を要求しないので動作はそのまま。
+    return ExcludeFocus(
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<ChannelMode>(
+          value: _current,
+          dropdownColor: colors.surfaceContainerHigh,
+          iconEnabledColor: colors.onSurface,
+          style: TextStyle(
+            color: colors.onSurface,
+            fontSize: 14,
+          ),
+          items: [
+            for (final m in widget.modes)
+              DropdownMenuItem<ChannelMode>(
+                value: m,
+                child: Text(m.label(context)),
+              ),
+          ],
+          onChanged: _switching
+              ? null
+              : (m) {
+                  if (m != null) _switchTo(m);
+                },
         ),
-        items: [
-          for (final m in widget.modes)
-            DropdownMenuItem<ChannelMode>(
-              value: m,
-              child: Text(m.label(context)),
-            ),
-        ],
-        onChanged: _switching
-            ? null
-            : (m) {
-                if (m != null) _switchTo(m);
-              },
       ),
     );
   }

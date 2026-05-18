@@ -46,6 +46,10 @@ function(APPLY_STANDARD_SETTINGS TARGET)
   target_compile_features(${TARGET} PUBLIC cxx_std_17)
   target_compile_options(${TARGET} PRIVATE /W4 /WX /wd"4100")
   target_compile_options(${TARGET} PRIVATE /EHsc)
+  # Treat source and execution character sets as UTF-8 so that Japanese
+  # comments / string literals compile cleanly on systems whose default ANSI
+  # code page is 932 (without this MSVC emits C4819 -> /WX -> C2220).
+  target_compile_options(${TARGET} PRIVATE /utf-8)
   target_compile_definitions(${TARGET} PRIVATE "_HAS_EXCEPTIONS=0")
   target_compile_definitions(${TARGET} PRIVATE "$<$<CONFIG:Debug>:_DEBUG>")
 endfunction()
