@@ -603,11 +603,39 @@ jobs:
           Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath $zipName -Force
           "zip_name=$zipName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
+      - name: Build Windows installer (Inno Setup)
+        id: installer
+        shell: pwsh
+        run: |
+          $version = "${{ needs.prepare.outputs.app_version }}"
+          # GitHub windows-latest には Inno Setup 6 が preinstall されている。
+          # 念のため LocalAppData 側 (winget install など) も候補に。
+          $isccCandidates = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+          )
+          $iscc = $isccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            throw "ISCC.exe not found. Inno Setup must be installed on the runner."
+          }
+          Write-Host "Using ISCC: $iscc"
+          & $iscc "/DMyAppVersion=$version" windows\installer\mimicx.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+          $setupExe = "windows\installer\MimicX_windows-setup-$version.exe"
+          if (-not (Test-Path $setupExe)) {
+            throw "Setup exe not produced at $setupExe"
+          }
+          "setup_path=$setupExe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "setup_name=MimicX_windows-setup-$version.exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v7
         with:
           name: mimicx-windows-${{ needs.prepare.outputs.app_version }}-${{ needs.prepare.outputs.build_number }}
-          path: ${{ steps.package.outputs.zip_name }}
+          path: |
+            ${{ steps.package.outputs.zip_name }}
+            ${{ steps.installer.outputs.setup_path }}
           retention-days: 14
 
       - name: Upload Windows zip to GitHub Release
@@ -616,3 +644,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: gh release upload "$env:GITHUB_REF_NAME" "${{ steps.package.outputs.zip_name }}" --clobber
+
+      - name: Upload Windows installer to GitHub Release
+        if: needs.prepare.outputs.is_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: gh release upload "$env:GITHUB_REF_NAME" "${{ steps.installer.outputs.setup_path }}" --clobber
