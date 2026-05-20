@@ -1,8 +1,88 @@
 // ===================================================================================
 // Mimic X プロトコル定数とパーサ
 // ===================================================================================
-// プロトコル仕様: MimicX-protocol v0.3.0
+// プロトコル仕様: MimicX-protocol v0.5.0
 // ===================================================================================
+
+/// このアプリがサポートするプロトコルのバージョン範囲。
+///
+/// - [minMajor].[minMinor]: 最低サポートバージョン。これ未満は「未対応」で接続拒否
+/// - [knownLatestMajor].[knownLatestMinor]: アプリが明示的に知っている最新版。
+///   これより新しいファームと話す場合は「互換性がない可能性」警告を出す
+///   (機能の一部が欠落する可能性あり)
+///
+/// 通常は両者を同じ値にしておく。アプリ更新で新プロトコル対応した場合のみ
+/// knownLatest を引き上げる。
+class MinSupportedProtocol {
+  // 最低サポートバージョン
+  static const int minMajor = 0;
+  static const int minMinor = 5;
+
+  // アプリが知っている最新プロトコルバージョン
+  static const int knownLatestMajor = 0;
+  static const int knownLatestMinor = 5;
+
+  // 旧 API 互換用 (minor が同じなら同一)
+  static const int major = minMajor;
+  static const int minor = minMinor;
+
+  static String get label => '$minMajor.$minMinor';
+  static String get knownLatestLabel => '$knownLatestMajor.$knownLatestMinor';
+
+  /// (major, minor) が最低要件を満たすか判定。
+  /// 同 major なら minor 以上、major が大きければ常に OK (将来互換)。
+  static bool meets(int protoMajor, int protoMinor) {
+    if (protoMajor > minMajor) return true;
+    if (protoMajor < minMajor) return false;
+    return protoMinor >= minMinor;
+  }
+
+  /// デバイスのバージョンがアプリの知っている最新版より新しいか。
+  /// true ならアプリ側に新プロトコルの解釈ロジックがないため警告対象。
+  static bool isNewerThanKnown(int protoMajor, int protoMinor) {
+    if (protoMajor > knownLatestMajor) return true;
+    if (protoMajor < knownLatestMajor) return false;
+    return protoMinor > knownLatestMinor;
+  }
+}
+
+/// SysEx ACK / レスポンスの status コード (プロトコル仕様 6.1.3)
+class AckStatus {
+  static const int ok = 0x00;
+  static const int unknownCommand = 0x01;
+  static const int unknownKey = 0x02;
+  static const int invalidValue = 0x03;
+  static const int genericError = 0x7F;
+
+  static String label(int v) {
+    switch (v) {
+      case ok: return 'OK';
+      case unknownCommand: return 'UNKNOWN_COMMAND';
+      case unknownKey: return 'UNKNOWN_KEY';
+      case invalidValue: return 'INVALID_VALUE';
+      case genericError: return 'GENERIC_ERROR';
+      default: return 'Unknown(0x${v.toRadixString(16)})';
+    }
+  }
+}
+
+/// SysEx リクエストへの応答 (ACK / 専用レスポンス) を表す共通型。
+class AckResult {
+  final int reqId;
+  final int status;
+  /// ACK (0x06) の場合: 元コマンド値、それ以外: 応答自身のコマンド値
+  final int origCmd;
+  final List<int> payload;
+
+  AckResult({
+    required this.reqId,
+    required this.status,
+    required this.origCmd,
+    this.payload = const [],
+  });
+
+  bool get isOk => status == AckStatus.ok;
+}
 
 class HidType {
   static const int unknown = 0x00;
@@ -159,18 +239,37 @@ class SysExBuilder {
   static const int cmdCapabilityReq = 0x03;
   static const int cmdCapabilityRsp = 0x04;
   static const int cmdTargetRx = 0x05;   // デバイス→ホスト: ターゲット機からの受信バイト
+  static const int cmdAck = 0x06;        // デバイス→ホスト: 専用レスポンス無しコマンドの ACK
   static const int cmdSetConfig = 0x10;
+  static const int cmdGetConfig = 0x11;
+  static const int cmdConfigRsp = 0x12;
   static const int cmdReset = 0x7F;
 
+  /// IDENTIFY はブートストラップのため req_id を持たない (プロトコル 6.3)
   static List<int> identifyRequest() =>
       [0xF0, mfrId, subId, cmdIdentifyReq, 0xF7];
 
-  static List<int> capabilityRequest() =>
-      [0xF0, mfrId, subId, cmdCapabilityReq, 0xF7];
+  static List<int> capabilityRequest(int reqId) =>
+      [0xF0, mfrId, subId, cmdCapabilityReq, reqId & 0x7F, 0xF7];
 
-  static List<int> setConfig(int key, int value) =>
-      [0xF0, mfrId, subId, cmdSetConfig, key & 0x7F, value & 0x7F, 0xF7];
+  static List<int> setConfig(int reqId, int key, int value) =>
+      [0xF0, mfrId, subId, cmdSetConfig, reqId & 0x7F, key & 0x7F, value & 0x7F, 0xF7];
 
-  static List<int> reset() =>
-      [0xF0, mfrId, subId, cmdReset, 0xF7];
+  static List<int> getConfig(int reqId, int key) =>
+      [0xF0, mfrId, subId, cmdGetConfig, reqId & 0x7F, key & 0x7F, 0xF7];
+
+  static List<int> reset(int reqId) =>
+      [0xF0, mfrId, subId, cmdReset, reqId & 0x7F, 0xF7];
+}
+
+/// 0x00〜0x7F を巡回する request ID アロケータ。
+/// 0x00 は IDENTIFY や "expectation 不要" 用に予約し、通常は 1〜127 を払い出す。
+class ReqIdAllocator {
+  int _next = 1;
+  int allocate() {
+    final id = _next;
+    _next = (_next + 1) & 0x7F;
+    if (_next == 0) _next = 1;
+    return id;
+  }
 }

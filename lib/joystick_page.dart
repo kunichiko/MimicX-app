@@ -10,6 +10,7 @@ import 'midi_service.dart';
 import 'mode_scaffold.dart';
 import 'joystick_settings.dart';
 import 'orientation_helper.dart';
+import 'protocol.dart';
 
 // ===========================================================================
 // JoystickPage 本体
@@ -41,6 +42,7 @@ class _JoystickPageState extends State<JoystickPage> {
     _modes = [
       AtariMode(channel: widget.channel),
       Md6Mode(channel: widget.channel),
+      LibbleRabbleMode(channel: widget.channel),
     ];
   }
 
@@ -74,7 +76,13 @@ class AtariMode extends ChannelMode {
   final JoystickSettings _settings =
       JoystickSettings(prefix: 'joystick.atari');
 
-  AtariMode({required this.channel});
+  AtariMode({required this.channel}) {
+    // 設定変更 (turbo の ON/OFF や load 完了) を本体 body へ反映するため
+    // notifyListeners を中継する。これがないと ModeScaffold 側の
+    // AnimatedBuilder が再ビルドされず、turbo の「連」バッジや
+    // 連射タイマー起動が反映されない。
+    _settings.addListener(notifyListeners);
+  }
 
   /// このモードで連射対象になり得るボタン。
   static const List<({int note, String label})> _turboCandidates = [
@@ -90,10 +98,11 @@ class AtariMode extends ChannelMode {
       AppLocalizations.of(context)!.padModeAtari;
 
   @override
-  Future<void> onEnter(MidiService midi) async {
+  Future<String?> onEnter(MidiService midi) async {
     await _settings.load();
-    // ファームのパッドモードを ATARI (0) に切替
-    midi.setPadMode(0);
+    final result = await midi.setPadMode(0);
+    if (!result.isOk) return AckStatus.label(result.status);
+    return null;
   }
 
   @override
@@ -118,7 +127,9 @@ class Md6Mode extends ChannelMode {
   final JoystickSettings _settings =
       JoystickSettings(prefix: 'joystick.md6');
 
-  Md6Mode({required this.channel});
+  Md6Mode({required this.channel}) {
+    _settings.addListener(notifyListeners);
+  }
 
   static const List<({int note, String label})> _turboCandidates = [
     (note: MidiService.noteX, label: 'X'),
@@ -137,15 +148,67 @@ class Md6Mode extends ChannelMode {
       AppLocalizations.of(context)!.padModeMd6;
 
   @override
-  Future<void> onEnter(MidiService midi) async {
+  Future<String?> onEnter(MidiService midi) async {
     await _settings.load();
-    // ファームのパッドモードを MD 6B (1) に切替
-    midi.setPadMode(1);
+    final result = await midi.setPadMode(1);
+    if (!result.isOk) return AckStatus.label(result.status);
+    return null;
   }
 
   @override
   Widget buildBody(BuildContext context, MidiService midi) {
     return _LandscapeGate(child: _Md6Layout(midi: midi, settings: _settings));
+  }
+
+  @override
+  Widget buildSettings(BuildContext context) =>
+      _SettingsSheet(settings: _settings, turboCandidates: _turboCandidates);
+
+  @override
+  void dispose() {
+    _settings.dispose();
+    super.dispose();
+  }
+}
+
+/// リブルラブル (XPD-1LR) 互換モード。左右に十字キー、中央に A/B ボタン。
+/// X68000 が PA0 (TH/COMMON) をトグルすることで左右レバー入力を時分割多重で
+/// 読み取る。ファーム側 (PAD_MODE_LIBBLE_RABBLE = 2) が TH エッジに同期して
+/// 左右レバー状態を D0-D3 に乗せ替える。
+class LibbleRabbleMode extends ChannelMode {
+  final int channel;
+  final JoystickSettings _settings =
+      JoystickSettings(prefix: 'joystick.libbleRabble');
+
+  LibbleRabbleMode({required this.channel}) {
+    _settings.addListener(notifyListeners);
+  }
+
+  static const List<({int note, String label})> _turboCandidates = [
+    (note: MidiService.noteA, label: 'A'),
+    (note: MidiService.noteB, label: 'B'),
+  ];
+
+  @override
+  String get id => 'joystick.libbleRabble';
+
+  @override
+  String label(BuildContext context) =>
+      AppLocalizations.of(context)!.padModeLibbleRabble;
+
+  @override
+  Future<String?> onEnter(MidiService midi) async {
+    await _settings.load();
+    final result = await midi.setPadMode(2);
+    if (!result.isOk) return AckStatus.label(result.status);
+    return null;
+  }
+
+  @override
+  Widget buildBody(BuildContext context, MidiService midi) {
+    return _LandscapeGate(
+      child: _LibbleRabbleLayout(midi: midi, settings: _settings),
+    );
   }
 
   @override
@@ -186,7 +249,19 @@ class _LandscapeGate extends StatelessWidget {
 class _DPad extends StatefulWidget {
   final MidiService midi;
   final double deadZoneRatio;
-  const _DPad({required this.midi, required this.deadZoneRatio});
+  /// このパッドが送る note。デュアル D-pad のときは右側を別 note にする。
+  final int noteUp;
+  final int noteDown;
+  final int noteLeft;
+  final int noteRight;
+  const _DPad({
+    required this.midi,
+    required this.deadZoneRatio,
+    this.noteUp = MidiService.noteUp,
+    this.noteDown = MidiService.noteDown,
+    this.noteLeft = MidiService.noteLeft,
+    this.noteRight = MidiService.noteRight,
+  });
 
   @override
   State<_DPad> createState() => _DPadState();
@@ -229,33 +304,33 @@ class _DPadState extends State<_DPad> {
   void _setAll(bool up, bool down, bool left, bool right) {
     if (up != _up) {
       _up = up;
-      up ? widget.midi.joystickPress(MidiService.noteUp)
-         : widget.midi.joystickRelease(MidiService.noteUp);
+      up ? widget.midi.joystickPress(widget.noteUp)
+         : widget.midi.joystickRelease(widget.noteUp);
     }
     if (down != _down) {
       _down = down;
-      down ? widget.midi.joystickPress(MidiService.noteDown)
-           : widget.midi.joystickRelease(MidiService.noteDown);
+      down ? widget.midi.joystickPress(widget.noteDown)
+           : widget.midi.joystickRelease(widget.noteDown);
     }
     if (left != _left) {
       _left = left;
-      left ? widget.midi.joystickPress(MidiService.noteLeft)
-           : widget.midi.joystickRelease(MidiService.noteLeft);
+      left ? widget.midi.joystickPress(widget.noteLeft)
+           : widget.midi.joystickRelease(widget.noteLeft);
     }
     if (right != _right) {
       _right = right;
-      right ? widget.midi.joystickPress(MidiService.noteRight)
-            : widget.midi.joystickRelease(MidiService.noteRight);
+      right ? widget.midi.joystickPress(widget.noteRight)
+            : widget.midi.joystickRelease(widget.noteRight);
     }
     setState(() {});
   }
 
   @override
   void dispose() {
-    if (_up) widget.midi.joystickRelease(MidiService.noteUp);
-    if (_down) widget.midi.joystickRelease(MidiService.noteDown);
-    if (_left) widget.midi.joystickRelease(MidiService.noteLeft);
-    if (_right) widget.midi.joystickRelease(MidiService.noteRight);
+    if (_up) widget.midi.joystickRelease(widget.noteUp);
+    if (_down) widget.midi.joystickRelease(widget.noteDown);
+    if (_left) widget.midi.joystickRelease(widget.noteLeft);
+    if (_right) widget.midi.joystickRelease(widget.noteRight);
     super.dispose();
   }
 
@@ -699,6 +774,70 @@ class _Md6Layout extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// リブルラブル (XPD-1LR) レイアウト: 左 D-pad / 中央 A・B / 右 D-pad
+// ---------------------------------------------------------------------------
+
+class _LibbleRabbleLayout extends StatelessWidget {
+  final MidiService midi;
+  final JoystickSettings settings;
+  const _LibbleRabbleLayout({required this.midi, required this.settings});
+
+  @override
+  Widget build(BuildContext context) {
+    const btnSize = 72.0;
+    const gap = 16.0;
+    const groupW = btnSize * 2 + gap;
+    final centerButtons = [
+      _ButtonSpec(
+        note: MidiService.noteA, label: 'A', color: Colors.red,
+        size: btnSize,
+        center: const Offset(btnSize / 2, btnSize / 2),
+      ),
+      _ButtonSpec(
+        note: MidiService.noteB, label: 'B', color: Colors.blue,
+        size: btnSize,
+        center: const Offset(btnSize + gap + btnSize / 2, btnSize / 2),
+      ),
+    ];
+
+    return SafeArea(
+      child: Center(
+        child: FractionallySizedBox(
+          widthFactor: 0.95,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _DPad(
+                midi: midi,
+                deadZoneRatio: settings.deadZoneRatio,
+                // 左 D-pad はデフォルト note (1-4)
+              ),
+              _ButtonGroup(
+                midi: midi,
+                buttons: centerButtons,
+                groupSize: const Size(groupW, btnSize),
+                extraHitRadius: settings.extraHitRadius,
+                turboNotes: settings.turboNotes,
+                turboRate: settings.turboRate,
+              ),
+              _DPad(
+                midi: midi,
+                deadZoneRatio: settings.deadZoneRatio,
+                noteUp: MidiService.noteUp2,
+                noteDown: MidiService.noteDown2,
+                noteLeft: MidiService.noteLeft2,
+                noteRight: MidiService.noteRight2,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

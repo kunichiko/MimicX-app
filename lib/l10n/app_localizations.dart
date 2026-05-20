@@ -170,6 +170,30 @@ abstract class AppLocalizations {
   /// **'Unsupported function: {hidType} / {target}'**
   String unsupportedFunction(String hidType, String target);
 
+  /// No description provided for @protocolTooOld.
+  ///
+  /// In en, this message translates to:
+  /// **'Firmware is too old (proto {deviceVersion}, requires {minVersion} or newer). Please update the device.'**
+  String protocolTooOld(String deviceVersion, String minVersion);
+
+  /// No description provided for @protocolNewerWarningTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Possibly incompatible'**
+  String get protocolNewerWarningTitle;
+
+  /// No description provided for @protocolNewerWarningBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The firmware protocol version (proto {deviceVersion}) is newer than the latest known to this app (proto {knownVersion}). Please update the app for full compatibility.'**
+  String protocolNewerWarningBody(String deviceVersion, String knownVersion);
+
+  /// No description provided for @padModeSwitchFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to switch to {mode} mode ({reason})'**
+  String padModeSwitchFailed(String mode, String reason);
+
   /// No description provided for @selectFunction.
   ///
   /// In en, this message translates to:
@@ -199,6 +223,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'MD 6B'**
   String get padModeMd6;
+
+  /// No description provided for @padModeLibbleRabble.
+  ///
+  /// In en, this message translates to:
+  /// **'Libble Rabble'**
+  String get padModeLibbleRabble;
 
   /// No description provided for @deadZoneLabel.
   ///

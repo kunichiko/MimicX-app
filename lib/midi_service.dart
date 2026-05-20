@@ -37,6 +37,13 @@ class MidiService {
   final List<int> _sysexBuf = [];
   bool _sysexReceiving = false;
 
+  // req_id → 待機中 Completer。ACK / CAPABILITY_RESPONSE / CONFIG_RESPONSE 受信時に解決する
+  final Map<int, Completer<AckResult>> _pendingAcks = {};
+  final ReqIdAllocator _reqIdAllocator = ReqIdAllocator();
+
+  /// API 呼び出しのデフォルトタイムアウト (プロトコル仕様 6.1.4 に準拠)
+  static const Duration defaultAckTimeout = Duration(milliseconds: 100);
+
   // ジョイスティック Note 番号 (D-SUB 9pin 対応)
   static const int chJoystickDefault = 0;
   static const int chKeyboardDefault = 1;
@@ -57,6 +64,12 @@ class MidiService {
   static const int noteY = 12;
   static const int noteZ = 13;
   static const int noteMode = 14;
+  // リブルラブル (XPD-1LR) 右側 D-pad。
+  // 左側は noteUp/Down/Left/Right を流用し、右側のみ別 note を割り当てる。
+  static const int noteUp2 = 15;
+  static const int noteDown2 = 16;
+  static const int noteLeft2 = 17;
+  static const int noteRight2 = 18;
 
   // OS 内蔵で Mimic X になり得ないバーチャル MIDI デバイス。
   // Windows の "Microsoft GS Wavetable Synth" は出力専用ソフトシンセで
@@ -79,30 +92,61 @@ class MidiService {
 
   Future<bool> connect(MidiDeviceInfo deviceInfo) async {
     try {
+      // 前回セッションが残っている (iOS で画面回転後に device.connected=true の
+      // まま port 側だけ閉じてしまうケースが観測された) と connectToDevice が
+      // 空回りすることがあるので、明示的に一度切ってから繋ぎ直す。
+      // 接続中でない場合の例外は無視する。
+      try {
+        _midiCommand.disconnectDevice(deviceInfo.device);
+      } catch (_) {}
+      // 前回 subscription が残っている可能性もあるので明示的にキャンセル
+      await _rxSubscription?.cancel();
+      _rxSubscription = null;
+      // disconnect → connect の間に少し置いて library 側の状態が落ち着くのを待つ
+      await Future.delayed(const Duration(milliseconds: 50));
+
       await _midiCommand.connectToDevice(deviceInfo.device);
       _connectedDevice = deviceInfo.device;
       _rxSubscription = _midiCommand.onMidiDataReceived?.listen(_onMidiReceived);
+      // 接続直後にファームの状態を念のためクリアする。
+      // - X68000 から給電されているとマイコンは USB 切断時もリセットされない
+      //   ため、前回セッションで押されたままの note などが残っている可能性がある
+      // - proto 0.4 (旧版) でも追加バイトは無視されるので安全
+      // ACK は待たない (旧版は ACK を返さないので待つと無駄)。
+      sendSysEx(SysExBuilder.reset(0));
       return true;
     } catch (e) {
       return false;
     }
   }
 
-  /// IDENTIFY_REQUEST を送信し、レスポンスを待つ。タイムアウト付き。
-  Future<DeviceIdentity?> identifyDevice({Duration timeout = const Duration(seconds: 1)}) async {
-    final completer = Completer<DeviceIdentity?>();
-    final prevHandler = onIdentifyResponse;
-    onIdentifyResponse = (id) {
-      if (!completer.isCompleted) completer.complete(id);
-    };
-    sendSysEx(SysExBuilder.identifyRequest());
-
-    final result = await completer.future.timeout(
-      timeout,
-      onTimeout: () => null,
-    );
-    onIdentifyResponse = prevHandler;
-    return result;
+  /// IDENTIFY_REQUEST を送信し、レスポンスを待つ。
+  ///
+  /// USB-MIDI スタックが過渡的に応答を取りこぼすことがあるため、
+  /// [maxAttempts] 回まで [perAttemptTimeout] のタイムアウトでリトライする。
+  Future<DeviceIdentity?> identifyDevice({
+    Duration perAttemptTimeout = const Duration(milliseconds: 400),
+    int maxAttempts = 3,
+    Duration retryDelay = const Duration(milliseconds: 200),
+  }) async {
+    for (int attempt = 0; attempt < maxAttempts; attempt++) {
+      final completer = Completer<DeviceIdentity?>();
+      final prevHandler = onIdentifyResponse;
+      onIdentifyResponse = (id) {
+        if (!completer.isCompleted) completer.complete(id);
+      };
+      sendSysEx(SysExBuilder.identifyRequest());
+      final result = await completer.future.timeout(
+        perAttemptTimeout,
+        onTimeout: () => null,
+      );
+      onIdentifyResponse = prevHandler;
+      if (result != null) return result;
+      if (attempt < maxAttempts - 1) {
+        await Future.delayed(retryDelay);
+      }
+    }
+    return null;
   }
 
   void _onMidiReceived(MidiPacket packet) {
@@ -129,16 +173,71 @@ class MidiService {
     if (sysex[1] != 0x7D || sysex[2] != 0x01) return;
     final cmd = sysex[3];
     if (cmd == SysExBuilder.cmdIdentifyRsp) {
+      // IDENTIFY_RESPONSE はレガシーフォーマット (req_id なし)
       final id = DeviceIdentity.parse(sysex);
       if (id != null) onIdentifyResponse?.call(id);
     } else if (cmd == SysExBuilder.cmdTargetRx) {
-      // F0 7D 01 05 <ch> <hi4> <lo4> F7
+      // F0 7D 01 05 <ch> <hi4> <lo4> F7 (req_id なし、非同期通知)
       if (sysex.length != 8) return;
       final ch = sysex[4];
       final byte = ((sysex[5] & 0x0F) << 4) | (sysex[6] & 0x0F);
       onTargetRx?.call(ch, byte);
+    } else if (cmd == SysExBuilder.cmdAck) {
+      // F0 7D 01 06 <req_id> <status> <orig_cmd> F7
+      if (sysex.length < 8) return;
+      _resolveAck(AckResult(
+        reqId: sysex[4],
+        status: sysex[5],
+        origCmd: sysex[6],
+      ));
+    } else if (cmd == SysExBuilder.cmdCapabilityRsp ||
+               cmd == SysExBuilder.cmdConfigRsp) {
+      // F0 7D 01 <cmd> <req_id> <status> <payload...> F7
+      if (sysex.length < 7) return;
+      _resolveAck(AckResult(
+        reqId: sysex[4],
+        status: sysex[5],
+        origCmd: cmd,
+        payload: sysex.sublist(6, sysex.length - 1),
+      ));
     }
-    // TODO: capability response, status notifications
+  }
+
+  void _resolveAck(AckResult result) {
+    final completer = _pendingAcks.remove(result.reqId);
+    completer?.complete(result);
+  }
+
+  /// req_id 付き SysEx を送信し、対応する ACK / レスポンスを req_id でマッチして
+  /// 待つ。タイムアウト時は status=genericError の AckResult を返す。
+  Future<AckResult> _sendAndWait({
+    required int reqId,
+    required List<int> sysex,
+    Duration? timeout,
+  }) async {
+    final completer = Completer<AckResult>();
+    _pendingAcks[reqId] = completer;
+    sendSysEx(sysex);
+    try {
+      return await completer.future.timeout(
+        timeout ?? defaultAckTimeout,
+        onTimeout: () {
+          _pendingAcks.remove(reqId);
+          return AckResult(
+            reqId: reqId,
+            status: AckStatus.genericError,
+            origCmd: 0,
+          );
+        },
+      );
+    } catch (_) {
+      _pendingAcks.remove(reqId);
+      return AckResult(
+        reqId: reqId,
+        status: AckStatus.genericError,
+        origCmd: 0,
+      );
+    }
   }
 
   /// 個別デバイスを切断する。MIDI サブシステム自体は維持されるので、その後
@@ -150,6 +249,17 @@ class MidiService {
   void disconnect() {
     _rxSubscription?.cancel();
     _rxSubscription = null;
+    // 待機中の ACK Completer をすべて解決して呼び出し側を unblock する
+    for (final c in _pendingAcks.values) {
+      if (!c.isCompleted) {
+        c.complete(AckResult(
+          reqId: 0,
+          status: AckStatus.genericError,
+          origCmd: 0,
+        ));
+      }
+    }
+    _pendingAcks.clear();
     final dev = _connectedDevice;
     if (dev != null) {
       _connectedDevice = null;
@@ -181,9 +291,15 @@ class MidiService {
   }
 
   // パッドモード設定 (SysEx SET_CONFIG)
-  // 0 = ATARI, 1 = MD 6B
-  void setPadMode(int mode) {
-    sendSysEx(SysExBuilder.setConfig(0x03, mode));
+  // 0 = ATARI, 1 = MD 6B, 2 = Libble Rabble (XPD-1LR)
+  // req_id を採番し、ACK を待って結果を返す。タイムアウト or status != OK なら
+  // isOk == false の AckResult が返る。
+  Future<AckResult> setPadMode(int mode) {
+    final reqId = _reqIdAllocator.allocate();
+    return _sendAndWait(
+      reqId: reqId,
+      sysex: SysExBuilder.setConfig(reqId, 0x03, mode),
+    );
   }
 
   // 任意 channel への送信ヘルパー (互換)
