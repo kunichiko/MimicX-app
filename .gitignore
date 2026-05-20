@@ -63,3 +63,6 @@ build/
 # Windows installer (Inno Setup) output
 windows/installer/Output/
 windows/installer/*.exe
+
+# Claude Code local settings (personal permissions)
+.claude/settings.local.json
