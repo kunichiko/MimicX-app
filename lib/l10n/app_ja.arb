@@ -15,12 +15,17 @@
   "deviceNotResponding": "デバイスから応答がありません (Mimic X 互換ではない可能性)",
   "noChannelsAvailable": "使用可能なチャンネルがありません",
   "unsupportedFunction": "未対応の機能です: {hidType} / {target}",
+  "protocolTooOld": "ファームウェアが古すぎます (proto {deviceVersion}, 要 {minVersion} 以上)。デバイスを更新してください",
+  "protocolNewerWarningTitle": "互換性がない可能性があります",
+  "protocolNewerWarningBody": "ファームウェアのプロトコルバージョン (proto {deviceVersion}) がアプリが知っている最新版 (proto {knownVersion}) より新しいです。アプリを最新に更新することを推奨します。",
+  "padModeSwitchFailed": "{mode} モードへの切替に失敗しました ({reason})",
   "selectFunction": "使用する機能を選択",
 
   "joystickTitle": "Joystick",
   "controllerSettings": "操作設定",
   "padModeAtari": "ATARI",
   "padModeMd6": "MD 6B",
+  "padModeLibbleRabble": "リブルラブル",
 
   "deadZoneLabel": "方向キー不感エリア半径: {percent}%",
   "deadZoneHelp": "小さいほど少ない指の動きで方向が反応する。0% は中央でも常時いずれかが押された状態になる。",

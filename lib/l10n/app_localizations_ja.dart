@@ -51,6 +51,24 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String protocolTooOld(String deviceVersion, String minVersion) {
+    return 'ファームウェアが古すぎます (proto $deviceVersion, 要 $minVersion 以上)。デバイスを更新してください';
+  }
+
+  @override
+  String get protocolNewerWarningTitle => '互換性がない可能性があります';
+
+  @override
+  String protocolNewerWarningBody(String deviceVersion, String knownVersion) {
+    return 'ファームウェアのプロトコルバージョン (proto $deviceVersion) がアプリが知っている最新版 (proto $knownVersion) より新しいです。アプリを最新に更新することを推奨します。';
+  }
+
+  @override
+  String padModeSwitchFailed(String mode, String reason) {
+    return '$mode モードへの切替に失敗しました ($reason)';
+  }
+
+  @override
   String get selectFunction => '使用する機能を選択';
 
   @override
@@ -64,6 +82,9 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get padModeMd6 => 'MD 6B';
+
+  @override
+  String get padModeLibbleRabble => 'リブルラブル';
 
   @override
   String deadZoneLabel(int percent) {

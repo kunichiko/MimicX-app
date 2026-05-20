@@ -149,9 +149,10 @@ class StandardX68kMode extends ChannelMode {
   String label(BuildContext context) => '標準';
 
   @override
-  Future<void> onEnter(MidiService midi) async {
+  Future<String?> onEnter(MidiService midi) async {
     // キーボードレイアウトは横向き専用。
     await OrientationHelper.landscape();
+    return null;
   }
 
   void _toggleNumpad() {
@@ -1619,11 +1620,12 @@ class LineInputMode extends ChannelMode {
   String label(BuildContext context) => 'ライン入力';
 
   @override
-  Future<void> onEnter(MidiService midi) async {
+  Future<String?> onEnter(MidiService midi) async {
     // ライン入力は portrait / landscape どちらでも使えるよう向きの固定を解除。
     await OrientationHelper.unlock();
     // 漢字入力のため Windows IME を有効化する (他モードでは無効)。
     await WindowsIme.setEnabled(true);
+    return null;
   }
 
   @override

@@ -34,7 +34,10 @@ abstract class ChannelMode extends ChangeNotifier {
 
   /// このモードがアクティブになった時 (ページ初期 mount または別モードからの切替) に
   /// 呼ばれる。ファームウェアにモード切替コマンドを送るような処理をここに書く。
-  Future<void> onEnter(MidiService midi) async {}
+  ///
+  /// 戻り値 null = 成功、非 null = 失敗 (ユーザー向けエラー本文)。
+  /// 失敗時、ModeScaffold は Snackbar を出して前のモードへロールバックする。
+  Future<String?> onEnter(MidiService midi) async => null;
 
   /// このモードを抜ける時 (別モードに切替 / ページ unmount) に呼ばれる。
   Future<void> onExit(MidiService midi) async {}

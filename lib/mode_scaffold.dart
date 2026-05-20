@@ -62,7 +62,19 @@ class _ModeScaffoldState extends State<ModeScaffold> {
     if (restored != null && restored != _current) {
       if (mounted) setState(() => _current = restored);
     }
-    await _current.onEnter(widget.midi);
+    final err = await _current.onEnter(widget.midi);
+    if (err != null && mounted) {
+      _showEnterError(_current, err);
+    }
+  }
+
+  /// onEnter 失敗時に Snackbar でユーザーに通知する。
+  void _showEnterError(ChannelMode mode, String reason) {
+    final l = AppLocalizations.of(context);
+    if (l == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(l.padModeSwitchFailed(mode.label(context), reason))),
+    );
   }
 
   Future<ChannelMode?> _restorePersistedMode() async {
@@ -86,19 +98,35 @@ class _ModeScaffoldState extends State<ModeScaffold> {
 
   Future<void> _switchTo(ChannelMode next) async {
     if (_switching || next == _current) return;
-    _switching = true;
+    setState(() => _switching = true);
+    final previous = _current;
     try {
-      await _current.onExit(widget.midi);
+      await previous.onExit(widget.midi);
       if (!mounted) return;
       setState(() => _current = next);
       // 旧モードの TextField 等が握っていた primary focus を一度落とす。
       // (ExcludeFocus でドロップダウンが focus を持てなくしてあるので、
       // ここで unfocus すれば次フレームで新 body の autofocus が拾える)。
       FocusManager.instance.primaryFocus?.unfocus();
-      await next.onEnter(widget.midi);
+      final err = await next.onEnter(widget.midi);
+      if (err != null) {
+        // 切替失敗: Snackbar 表示 + 前モードへロールバック
+        if (mounted) _showEnterError(next, err);
+        if (mounted) setState(() => _current = previous);
+        await previous.onEnter(widget.midi);
+        return;
+      }
       await _persistSelectedMode(next);
     } finally {
-      _switching = false;
+      // _switching を setState 経由で戻す。setState を使わないと、ACK 待ちで
+      // 関数全体が 1 フレームを超えた場合に途中の rebuild が _switching=true を
+      // 捕まえてしまい、最終的に false に戻った後も再 build されず、
+      // ドロップダウンが永続的に disabled になる。
+      if (mounted) {
+        setState(() => _switching = false);
+      } else {
+        _switching = false;
+      }
     }
   }
 

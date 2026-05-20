@@ -61,8 +61,8 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    // ホーム画面はポートレート固定
-    OrientationHelper.portrait();
+    // ホーム画面は OS の自動回転に追従させる (横持ち利用も多いため固定しない)。
+    OrientationHelper.unlock();
 
     _midi.onDisconnect = () {
       if (mounted) setState(() {});
@@ -86,19 +86,12 @@ class _HomePageState extends State<HomePage> {
       final ok = await _midi.connect(dev);
       if (!ok) continue;
       try {
-        dev.identity = await _midi.identifyDevice(
-          timeout: const Duration(milliseconds: 500),
-        );
-        // macOS の flutter_midi_command は connectToDevice の result(nil) を
-        // CoreMIDI ポート open 完了前に返すことがあり、Combined デバイスのように
-        // 入出力 + 複数 channel を持つデバイスでは初回 IDENTIFY を取りこぼす。
-        // 一度だけ短い猶予を空けてリトライする。
-        if (dev.identity == null) {
-          await Future.delayed(const Duration(milliseconds: 200));
-          dev.identity = await _midi.identifyDevice(
-            timeout: const Duration(milliseconds: 500),
-          );
-        }
+        // identifyDevice 内部で複数回リトライするので呼び出し側は 1 回でよい。
+        // 過去には macOS の connectToDevice が CoreMIDI ポート open 完了前に返り
+        // 初回 IDENTIFY を取りこぼす問題、Android で app を一度落としてから
+        // 再接続したときに 1 回目が間に合わない問題があり、いずれも
+        // identifyDevice の内部リトライで吸収する。
+        dev.identity = await _midi.identifyDevice();
       } catch (_) {
         // 識別失敗は無視 (Mimic X 以外のデバイスかも)
       }
@@ -129,6 +122,41 @@ class _HomePageState extends State<HomePage> {
       );
       _midi.disconnect();
       return;
+    }
+
+    // 最低プロトコルバージョンチェック (v0.5.0 以降必須)
+    if (!MinSupportedProtocol.meets(
+        identity.protocolMajor, identity.protocolMinor)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.protocolTooOld(
+          identity.protocolVersion,
+          MinSupportedProtocol.label,
+        ))),
+      );
+      _midi.disconnect();
+      return;
+    }
+
+    // ファームのプロトコルがアプリ知識より新しい場合は警告 (続行は可能)
+    if (MinSupportedProtocol.isNewerThanKnown(
+        identity.protocolMajor, identity.protocolMinor)) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(l.protocolNewerWarningTitle),
+          content: Text(l.protocolNewerWarningBody(
+            identity.protocolVersion,
+            MinSupportedProtocol.knownLatestLabel,
+          )),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
     }
 
     if (identity.channels.isEmpty) {
@@ -204,9 +232,9 @@ class _HomePageState extends State<HomePage> {
     }
 
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => page!));
-    // 戻ってきたら切断 + ポートレート復帰
+    // 戻ってきたら切断 + 回転ロック解除 (ホーム画面は OS の自動回転に追従)
     _midi.disconnect();
-    OrientationHelper.portrait();
+    OrientationHelper.unlock();
   }
 
   void _showChannelPicker(
@@ -216,25 +244,29 @@ class _HomePageState extends State<HomePage> {
     final l = AppLocalizations.of(context)!;
     showModalBottomSheet(
       context: context,
+      // 横画面では bottom sheet の高さが狭く、ListTile 数によっては
+      // overflow するので SingleChildScrollView で逃がす。
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(l.selectFunction, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            ),
-            for (final ch in channels)
-              ListTile(
-                leading: Icon(_iconForType(ch.hidType)),
-                title: Text(ch.hidTypeLabel),
-                subtitle: Text(l.homeChannelLabel(ch.midiChannel + 1, ch.targetLabel)),
-                onTap: () {
-                  Navigator.of(ctx).pop();
-                  _routeToChannel(device, ch);
-                },
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(l.selectFunction, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ),
-          ],
+              for (final ch in channels)
+                ListTile(
+                  leading: Icon(_iconForType(ch.hidType)),
+                  title: Text(ch.hidTypeLabel),
+                  subtitle: Text(l.homeChannelLabel(ch.midiChannel + 1, ch.targetLabel)),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _routeToChannel(device, ch);
+                  },
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -276,7 +308,10 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      body: _devices.isEmpty
+      // 横画面ではカメラノッチ / ジェスチャ領域が左右に来るので SafeArea で
+      // 避ける (portrait では AppBar が上を、ホームバーが下を吸収するので影響なし)
+      body: SafeArea(
+        child: _devices.isEmpty
           ? Center(
               child: _scanning
                   ? Column(
@@ -367,6 +402,7 @@ class _HomePageState extends State<HomePage> {
                 );
               },
             ),
+      ),
     );
   }
 }

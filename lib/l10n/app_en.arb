@@ -34,12 +34,35 @@
       "target": { "type": "String" }
     }
   },
+  "protocolTooOld": "Firmware is too old (proto {deviceVersion}, requires {minVersion} or newer). Please update the device.",
+  "@protocolTooOld": {
+    "placeholders": {
+      "deviceVersion": { "type": "String" },
+      "minVersion": { "type": "String" }
+    }
+  },
+  "protocolNewerWarningTitle": "Possibly incompatible",
+  "protocolNewerWarningBody": "The firmware protocol version (proto {deviceVersion}) is newer than the latest known to this app (proto {knownVersion}). Please update the app for full compatibility.",
+  "@protocolNewerWarningBody": {
+    "placeholders": {
+      "deviceVersion": { "type": "String" },
+      "knownVersion": { "type": "String" }
+    }
+  },
+  "padModeSwitchFailed": "Failed to switch to {mode} mode ({reason})",
+  "@padModeSwitchFailed": {
+    "placeholders": {
+      "mode": { "type": "String" },
+      "reason": { "type": "String" }
+    }
+  },
   "selectFunction": "Select function",
 
   "joystickTitle": "Joystick",
   "controllerSettings": "Controller Settings",
   "padModeAtari": "ATARI",
   "padModeMd6": "MD 6B",
+  "padModeLibbleRabble": "Libble Rabble",
 
   "deadZoneLabel": "D-pad dead zone radius: {percent}%",
   "@deadZoneLabel": {

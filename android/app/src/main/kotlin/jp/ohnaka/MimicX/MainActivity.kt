@@ -28,8 +28,10 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "setUnspecified" -> {
-                        // 全方向許可。OS の傾きセンサ / 自動回転ロックに任せる。
-                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                        // 全方向許可、OS の自動回転ロックを無視して傾きセンサに追従。
+                        // UNSPECIFIED だとマニフェストの portrait に戻ってしまう端末が
+                        // あるため、FULL_SENSOR で 4 方向すべてセンサ追従とする。
+                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
                         result.success(null)
                     }
                     else -> result.notImplemented()
