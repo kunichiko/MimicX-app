@@ -23,7 +23,7 @@ X68000・MSX をはじめとするレトロPCの実機やエミュレータに�
 
 ## リンク
 
-- [プライバシーポリシー / Privacy Policy](./privacy-policy-ja/)
+- プライバシーポリシー: [日本語](./privacy-policy-ja/) ／ [English](./privacy-policy-en/)
 - [GitHub リポジトリ (App)](https://github.com/kunichiko/MimicX-app)
 - [GitHub リポジトリ (Hardware)](https://github.com/kunichiko/MimicX-hardware)
 - [GitHub リポジトリ (Firmware)](https://github.com/kunichiko/MimicX-firmware)
