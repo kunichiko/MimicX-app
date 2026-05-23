@@ -4,9 +4,10 @@ theme: jekyll-theme-cayman
 
 permalink: /:title/
 
-# Pages に含めないファイル（開発用メモ）
+# Pages に含めないファイル（開発用メモ・申請用原稿）
 exclude:
   - development-notes.md
+  - app-store-description-ios.txt
 
 # GitHub リンクをヘッダに出す
 show_downloads: false
