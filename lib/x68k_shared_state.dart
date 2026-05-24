@@ -10,6 +10,11 @@
 //     の点灯状態
 //   - LED 輝度 (0=最も明るい, 3=最も暗い)
 //   - キーリピート開始遅延 / 間隔 (X68000 が SET REPEAT で配ってくる)
+//   - 専用ディスプレイ制御 (TV リモコン) 関連:
+//       * X68k/X1 モード (キー操作によるリモコン制御のモード切替)
+//       * CTRL EN (本体発のディスプレイ制御コマンドを有効/無効化)
+//       * OPT2 EN (OPT.2 + キーでもディスプレイ制御を発行可能にする)
+//   - 専用ディスプレイ制御コマンド (one-shot) は onDisplayControl で通知
 //
 // X68kKeyboardPage の State が 1 つ生成し、TARGET_RX ハンドラを page 自身が
 // 持って handleTargetRxByte に流す。各モードは constructor 経由でこのインスタンスを
@@ -17,6 +22,80 @@
 // ===================================================================================
 
 import 'package:flutter/foundation.dart';
+
+/// 専用ディスプレイ制御コマンド (X68000 → キーボード, 純正リモコンと同一コード)。
+/// 0x01-0x1F が定義済み。0x20 以降は予約。
+class DisplayControlCommand {
+  static const int volUp = 0x01;
+  static const int volDown = 0x02;
+  static const int volNormal = 0x03;
+  static const int chCall = 0x04;
+  static const int reset = 0x05;
+  static const int mute = 0x06;
+  static const int powerOn = 0x07;
+  static const int tvCom = 0x08;
+  static const int video = 0x09;
+  static const int contrastNormal = 0x0A;
+  static const int chUp = 0x0B;
+  static const int chDown = 0x0C;
+  static const int powerOff = 0x0D;
+  static const int powerToggle = 0x0E;
+  static const int superToggle = 0x0F;
+  static const int ch1 = 0x10;
+  static const int ch2 = 0x11;
+  static const int ch3 = 0x12;
+  static const int ch4 = 0x13;
+  static const int ch5 = 0x14;
+  static const int ch6 = 0x15;
+  static const int ch7 = 0x16;
+  static const int ch8 = 0x17;
+  static const int ch9 = 0x18;
+  static const int ch10 = 0x19;
+  static const int ch11 = 0x1A;
+  static const int ch12 = 0x1B;
+  static const int tv = 0x1C;
+  static const int computer = 0x1D;
+  static const int super1 = 0x1E;
+  static const int super2 = 0x1F;
+
+  /// 既知コードに日本語ラベルを返す。未知コードは "Unknown(0xXX)" を返す。
+  static String label(int code) {
+    switch (code) {
+      case volUp: return 'ボリュームアップ';
+      case volDown: return 'ボリュームダウン';
+      case volNormal: return 'ボリュームノーマル';
+      case chCall: return 'チャンネルコール';
+      case reset: return 'テレビ画面リセット';
+      case mute: return 'ミュート';
+      case powerOn: return '電源 ON';
+      case tvCom: return 'テレビ⇔コンピュータ';
+      case video: return 'テレビ⇔外部入力';
+      case contrastNormal: return 'コントラストノーマル';
+      case chUp: return 'チャンネルアップ';
+      case chDown: return 'チャンネルダウン';
+      case powerOff: return '電源 OFF';
+      case powerToggle: return '電源 ON/OFF';
+      case superToggle: return 'スーパーインポーズ';
+      case ch1: return 'チャンネル 1';
+      case ch2: return 'チャンネル 2';
+      case ch3: return 'チャンネル 3';
+      case ch4: return 'チャンネル 4';
+      case ch5: return 'チャンネル 5';
+      case ch6: return 'チャンネル 6';
+      case ch7: return 'チャンネル 7';
+      case ch8: return 'チャンネル 8';
+      case ch9: return 'チャンネル 9';
+      case ch10: return 'チャンネル 10';
+      case ch11: return 'チャンネル 11';
+      case ch12: return 'チャンネル 12';
+      case tv: return 'テレビ画面';
+      case computer: return 'コンピュータ画面';
+      case super1: return 'スーパーインポーズ (コントラストダウン)';
+      case super2: return 'スーパーインポーズ (コントラストノーマル)';
+      default: return 'Unknown(0x${code.toRadixString(16).padLeft(2, '0')})';
+    }
+  }
+}
 
 class X68kKeyboardSharedState extends ChangeNotifier {
   /// LED bit (0..6) → 対応 scancode
@@ -35,12 +114,31 @@ class X68kKeyboardSharedState extends ChangeNotifier {
   int _repeatDelayMs = 500;
   int _repeatIntervalMs = 110;
 
+  // 専用ディスプレイ制御 (TV リモコン) 関連の状態フラグ。
+  // いずれも X68000 起動時の初期値が不明なので「未受信 = null」「受信後にビット値を保持」とする。
+  // 既知の bit 割り当て:
+  //   - displayModeBit:   0b010100*X → X68k/X1 モード選択。X=0/1 のどちらが X68k/X1 かは要実機検証
+  //   - displayCtrlEnBit: 0b010110*X → 本体発ディスプレイ制御の有効/無効。X=1 で有効と想定 (要検証)
+  //   - displayOpt2EnBit: 0b010111*X → OPT.2 + キーでの制御許可/禁止。X=1 で許可と想定 (要検証)
+  int? _displayModeBit;
+  int? _displayCtrlEnBit;
+  int? _displayOpt2EnBit;
+
   Set<int> get ledOn => Set.unmodifiable(_ledOn);
   int get ledBrightness => _ledBrightness;
   int get repeatDelayMs => _repeatDelayMs;
   int get repeatIntervalMs => _repeatIntervalMs;
 
+  int? get displayModeBit => _displayModeBit;
+  int? get displayCtrlEnBit => _displayCtrlEnBit;
+  int? get displayOpt2EnBit => _displayOpt2EnBit;
+
   bool isLedOn(int scancode) => _ledOn.contains(scancode);
+
+  /// 専用ディスプレイ制御コマンド (0x00-0x3F) を受信したときの通知コールバック。
+  /// 状態を持たない one-shot イベントなので ChangeNotifier ではなく callback で渡す。
+  /// page 側で snackbar 表示などに使う。
+  void Function(int code)? onDisplayControl;
 
   /// X68000 から届いた 1 バイトを解釈して state を更新する。
   /// 解釈不能なバイトは握りつぶす。
@@ -60,6 +158,12 @@ class X68kKeyboardSharedState extends ChangeNotifier {
       if (changed) notifyListeners();
       return;
     }
+    if ((byte & 0xC0) == 0x00) {
+      // 0b00xxxxxx: 専用ディスプレイ制御コマンド (TV リモコン同等)。
+      // 0x01-0x1F が定義済み。0x00 / 0x20-0x3F は予約だが onDisplayControl には流す。
+      onDisplayControl?.call(byte & 0x3F);
+      return;
+    }
     if ((byte & 0xF0) == 0x60) {
       // 0b0110dddd: キーリピート開始遅延 (200 + dddd × 100 ms)
       _repeatDelayMs = 200 + (byte & 0x0F) * 100;
@@ -74,6 +178,24 @@ class X68kKeyboardSharedState extends ChangeNotifier {
     if ((byte & 0xFC) == 0x54) {
       // 0b010101xx: LED 輝度 (xx=00 最も明るい, xx=11 最も暗い)
       _ledBrightness = byte & 0x03;
+      notifyListeners();
+      return;
+    }
+    if ((byte & 0xFC) == 0x50) {
+      // 0b010100*X: ディスプレイ制御モード選択 (X68k / X1)。bit1 は don't care。
+      _displayModeBit = byte & 0x01;
+      notifyListeners();
+      return;
+    }
+    if ((byte & 0xFC) == 0x58) {
+      // 0b010110*X: CTRL EN — 本体発ディスプレイ制御の有効/無効。bit1 は don't care。
+      _displayCtrlEnBit = byte & 0x01;
+      notifyListeners();
+      return;
+    }
+    if ((byte & 0xFC) == 0x5C) {
+      // 0b010111*X: OPT2 EN — OPT.2 キーによるディスプレイ制御許可/禁止。bit1 は don't care。
+      _displayOpt2EnBit = byte & 0x01;
       notifyListeners();
       return;
     }
