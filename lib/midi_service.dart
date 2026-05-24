@@ -302,6 +302,17 @@ class MidiService {
     );
   }
 
+  /// X68000 キーボードの REMOTE 端子からリモコンコード [code] (0x01-0x1F) を
+  /// 1 回発射するようファームに依頼する。
+  ///
+  /// SHIFT/OPT.2 + 特定キーの押下検出時や、独自リモコン UI からの発射に使う。
+  /// レイテンシを抑えるため ACK は待たない (fire-and-forget)。ファームが未対応の
+  /// バージョンの場合は UNKNOWN_COMMAND ACK が返るが無視される。
+  void emitRemote(int code) {
+    final reqId = _reqIdAllocator.allocate();
+    sendSysEx(SysExBuilder.emitRemote(reqId, code));
+  }
+
   // 任意 channel への送信ヘルパー (互換)
   void joystickPress(int note, {int channel = chJoystickDefault}) =>
       sendNoteOn(channel, note, 127);

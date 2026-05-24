@@ -20,7 +20,7 @@ class MinSupportedProtocol {
 
   // アプリが知っている最新プロトコルバージョン
   static const int knownLatestMajor = 0;
-  static const int knownLatestMinor = 5;
+  static const int knownLatestMinor = 6;
 
   // 旧 API 互換用 (minor が同じなら同一)
   static const int major = minMajor;
@@ -240,6 +240,7 @@ class SysExBuilder {
   static const int cmdCapabilityRsp = 0x04;
   static const int cmdTargetRx = 0x05;   // デバイス→ホスト: ターゲット機からの受信バイト
   static const int cmdAck = 0x06;        // デバイス→ホスト: 専用レスポンス無しコマンドの ACK
+  static const int cmdEmitRemote = 0x07; // ホスト→デバイス: REMOTE 端子からリモコンコード発射
   static const int cmdSetConfig = 0x10;
   static const int cmdGetConfig = 0x11;
   static const int cmdConfigRsp = 0x12;
@@ -260,6 +261,11 @@ class SysExBuilder {
 
   static List<int> reset(int reqId) =>
       [0xF0, mfrId, subId, cmdReset, reqId & 0x7F, 0xF7];
+
+  /// EMIT_REMOTE (0x07): X68000 キーボードの REMOTE 端子から SHARP 12-bit
+  /// リモコンコードを送出させる。code は 0x01-0x1F。
+  static List<int> emitRemote(int reqId, int code) =>
+      [0xF0, mfrId, subId, cmdEmitRemote, reqId & 0x7F, code & 0x7F, 0xF7];
 }
 
 /// 0x00〜0x7F を巡回する request ID アロケータ。
