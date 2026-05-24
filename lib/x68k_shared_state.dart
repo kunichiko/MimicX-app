@@ -23,6 +23,65 @@
 
 import 'package:flutter/foundation.dart';
 
+/// X68000 → キーボードの 1 バイト制御コマンドを受信した記録。
+/// 受信ログ画面の表示に使う。
+class TargetRxLogEntry {
+  final DateTime timestamp;
+  final int rawByte;
+  final String interpretation;
+
+  TargetRxLogEntry({
+    required this.timestamp,
+    required this.rawByte,
+    required this.interpretation,
+  });
+}
+
+/// 受信バイトを日本語の解釈文字列に変換する。
+/// shared state でも log page でも使えるようトップレベル関数にしておく。
+String interpretTargetRxByte(int byte) {
+  if ((byte & 0x80) != 0) {
+    // LED 状態 (bit7=1, 0=点灯, 1=消灯)
+    const ledNames = ['かな', 'ローマ字', 'コード入力', 'CAPS', 'INS', 'ひらがな', '全角'];
+    final lit = <String>[];
+    for (int i = 0; i < 7; i++) {
+      if (((byte >> i) & 1) == 0) lit.add(ledNames[i]);
+    }
+    return lit.isEmpty ? 'LED: (全消灯)' : 'LED: ${lit.join("+")}';
+  }
+  if ((byte & 0xC0) == 0x00) {
+    return 'TV: ${DisplayControlCommand.label(byte & 0x3F)}';
+  }
+  if ((byte & 0xFC) == 0x48) {
+    // 0b010010*X: KEY EN — キーボード→本体のキーコード送信許可。
+    // bit=1 送信可 / bit=0 送信不可。TV Control 信号は影響を受けない。
+    return (byte & 0x01) != 0
+        ? 'KEY EN = 1 (送信可)'
+        : 'KEY EN = 0 (送信不可)';
+  }
+  if ((byte & 0xFC) == 0x50) {
+    return 'X68k/X1 mode = ${byte & 0x01}';
+  }
+  if ((byte & 0xFC) == 0x54) {
+    return 'BRIGHT = ${byte & 0x03}';
+  }
+  if ((byte & 0xFC) == 0x58) {
+    return 'CTRL EN = ${byte & 0x01}';
+  }
+  if ((byte & 0xFC) == 0x5C) {
+    return 'OPT2 EN = ${byte & 0x01}';
+  }
+  if ((byte & 0xF0) == 0x60) {
+    final n = byte & 0x0F;
+    return 'REPEAT DELAY = $n (${200 + n * 100}ms)';
+  }
+  if ((byte & 0xF0) == 0x70) {
+    final n = byte & 0x0F;
+    return 'REPEAT INTERVAL = $n (${30 + n * n * 5}ms)';
+  }
+  return 'Unknown';
+}
+
 /// 専用ディスプレイ制御コマンド (X68000 → キーボード, 純正リモコンと同一コード)。
 /// 0x01-0x1F が定義済み。0x20 以降は予約。
 class DisplayControlCommand {
@@ -117,9 +176,10 @@ class X68kKeyboardSharedState extends ChangeNotifier {
   // 専用ディスプレイ制御 (TV リモコン) 関連の状態フラグ。
   // いずれも X68000 起動時の初期値が不明なので「未受信 = null」「受信後にビット値を保持」とする。
   // 既知の bit 割り当て:
-  //   - displayModeBit:   0b010100*X → X68k/X1 モード選択。X=0/1 のどちらが X68k/X1 かは要実機検証
-  //   - displayCtrlEnBit: 0b010110*X → 本体発ディスプレイ制御の有効/無効。X=1 で有効と想定 (要検証)
-  //   - displayOpt2EnBit: 0b010111*X → OPT.2 + キーでの制御許可/禁止。X=1 で許可と想定 (要検証)
+  //   - displayModeBit:   0b010100*X → X68k/X1 モード選択。極性未検証
+  //   - displayCtrlEnBit: 0b010110*X → 本体発ディスプレイ制御の有効/無効。極性未検証
+  //   - displayOpt2EnBit: 0b010111*X → OPT.2 + キーでの制御許可/禁止。
+  //                                    実機観測で bit=0 が許可 (= inverted logic)
   int? _displayModeBit;
   int? _displayCtrlEnBit;
   int? _displayOpt2EnBit;
@@ -133,71 +193,73 @@ class X68kKeyboardSharedState extends ChangeNotifier {
   int? get displayCtrlEnBit => _displayCtrlEnBit;
   int? get displayOpt2EnBit => _displayOpt2EnBit;
 
+  // 受信ログ (newest last)。容量を超えたら先頭を捨てる。
+  // ログ画面で「最新が上」表示する場合は表示側で reverse する。
+  static const int _logCapacity = 100;
+  final List<TargetRxLogEntry> _log = [];
+  List<TargetRxLogEntry> get log => List.unmodifiable(_log);
+
+  void clearLog() {
+    if (_log.isEmpty) return;
+    _log.clear();
+    notifyListeners();
+  }
+
+  /// OPT.2 + キーで制御コマンドを発射してよいか。実機確認済み: bit=0 が許可。
+  /// 未受信 (= null) は false 扱い。
+  bool get displayOpt2Enabled => _displayOpt2EnBit == 0;
+
   bool isLedOn(int scancode) => _ledOn.contains(scancode);
 
-  /// 専用ディスプレイ制御コマンド (0x00-0x3F) を受信したときの通知コールバック。
-  /// 状態を持たない one-shot イベントなので ChangeNotifier ではなく callback で渡す。
-  /// page 側で snackbar 表示などに使う。
-  void Function(int code)? onDisplayControl;
 
   /// X68000 から届いた 1 バイトを解釈して state を更新する。
-  /// 解釈不能なバイトは握りつぶす。
+  /// 解釈不能なバイトは握りつぶす。ログ追加と notifyListeners は末尾で一括して行う。
   void handleTargetRxByte(int byte) {
+    // まず受信ログに残す (解釈処理の有無にかかわらず全バイトを記録)。
+    _log.add(TargetRxLogEntry(
+      timestamp: DateTime.now(),
+      rawByte: byte,
+      interpretation: interpretTargetRxByte(byte),
+    ));
+    if (_log.length > _logCapacity) {
+      _log.removeAt(0);
+    }
+
     if ((byte & 0x80) != 0) {
       // LED 制御: bit7=1, bit6..0 が各 LED 状態 (0=点灯, 1=消灯)
-      bool changed = false;
       for (int i = 0; i < ledBitToScancode.length; i++) {
         final lit = ((byte >> i) & 1) == 0;
         final sc = ledBitToScancode[i];
         if (lit) {
-          if (_ledOn.add(sc)) changed = true;
+          _ledOn.add(sc);
         } else {
-          if (_ledOn.remove(sc)) changed = true;
+          _ledOn.remove(sc);
         }
       }
-      if (changed) notifyListeners();
-      return;
-    }
-    if ((byte & 0xC0) == 0x00) {
+    } else if ((byte & 0xC0) == 0x00) {
       // 0b00xxxxxx: 専用ディスプレイ制御コマンド (TV リモコン同等)。
-      // 0x01-0x1F が定義済み。0x00 / 0x20-0x3F は予約だが onDisplayControl には流す。
-      onDisplayControl?.call(byte & 0x3F);
-      return;
-    }
-    if ((byte & 0xF0) == 0x60) {
+      // 解釈はログ表示用 interpretTargetRxByte() に任せる。
+    } else if ((byte & 0xF0) == 0x60) {
       // 0b0110dddd: キーリピート開始遅延 (200 + dddd × 100 ms)
       _repeatDelayMs = 200 + (byte & 0x0F) * 100;
-      return;
-    }
-    if ((byte & 0xF0) == 0x70) {
+    } else if ((byte & 0xF0) == 0x70) {
       // 0b0111rrrr: キーリピート間隔 (30 + rrrr² × 5 ms)
       final n = byte & 0x0F;
       _repeatIntervalMs = 30 + n * n * 5;
-      return;
-    }
-    if ((byte & 0xFC) == 0x54) {
+    } else if ((byte & 0xFC) == 0x54) {
       // 0b010101xx: LED 輝度 (xx=00 最も明るい, xx=11 最も暗い)
       _ledBrightness = byte & 0x03;
-      notifyListeners();
-      return;
-    }
-    if ((byte & 0xFC) == 0x50) {
+    } else if ((byte & 0xFC) == 0x50) {
       // 0b010100*X: ディスプレイ制御モード選択 (X68k / X1)。bit1 は don't care。
       _displayModeBit = byte & 0x01;
-      notifyListeners();
-      return;
-    }
-    if ((byte & 0xFC) == 0x58) {
+    } else if ((byte & 0xFC) == 0x58) {
       // 0b010110*X: CTRL EN — 本体発ディスプレイ制御の有効/無効。bit1 は don't care。
       _displayCtrlEnBit = byte & 0x01;
-      notifyListeners();
-      return;
-    }
-    if ((byte & 0xFC) == 0x5C) {
+    } else if ((byte & 0xFC) == 0x5C) {
       // 0b010111*X: OPT2 EN — OPT.2 キーによるディスプレイ制御許可/禁止。bit1 は don't care。
       _displayOpt2EnBit = byte & 0x01;
-      notifyListeners();
-      return;
     }
+    // ログ更新と (どのパスでも) 状態変化を listeners に伝える。
+    notifyListeners();
   }
 }

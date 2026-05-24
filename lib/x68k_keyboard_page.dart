@@ -18,6 +18,7 @@ import 'orientation_helper.dart';
 import 'sjis_encoder.dart';
 import 'windows_ime.dart';
 import 'x68k_shared_state.dart';
+import 'x68k_target_rx_log_page.dart';
 
 // ===========================================================================
 // X68kKeyboardPage 本体
@@ -58,8 +59,6 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
     // TARGET_RX を page で受けて shared に転送する。冪等パターン (既に同じ
     // closure なら触らない / dispose 時は自分がまだ active な時のみクリア)。
     widget.midi.onTargetRx = _onTargetRx;
-    // 専用ディスプレイ制御コマンド受信時の snackbar 通知。
-    _shared.onDisplayControl = _onDisplayControl;
     _modes = [
       StandardX68kMode(
         channel: widget.channel,
@@ -84,25 +83,6 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
     _shared.handleTargetRxByte(byte);
   }
 
-  /// 専用ディスプレイ制御コマンド (TV リモコン相当) を本体から受信したときに
-  /// snackbar で簡易表示する。連発時に積み上がらないように直前のを消してから出す。
-  void _onDisplayControl(int code) {
-    if (!mounted) return;
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    if (messenger == null) return;
-    final label = DisplayControlCommand.label(code);
-    final hex = code.toRadixString(16).padLeft(2, '0').toUpperCase();
-    messenger
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          content: Text('TV: $label  (0x$hex)'),
-          duration: const Duration(milliseconds: 1200),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-  }
-
   Future<void> _syncLedState() async {
     const insScancode = 0x5E;
     for (int i = 0; i < 2; i++) {
@@ -119,9 +99,6 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
   void dispose() {
     if (widget.midi.onTargetRx == _onTargetRx) {
       widget.midi.onTargetRx = null;
-    }
-    if (_shared.onDisplayControl == _onDisplayControl) {
-      _shared.onDisplayControl = null;
     }
     for (final m in _modes) {
       m.dispose();
@@ -241,6 +218,15 @@ class StandardX68kMode extends ChannelMode {
         tooltip: _numpadVisible ? 'テンキーを非表示' : 'テンキーを表示',
         icon: Icon(_numpadVisible ? Icons.dialpad : Icons.dialpad_outlined),
         onPressed: _toggleNumpad,
+      ),
+      IconButton(
+        tooltip: '受信ログ',
+        icon: const Icon(Icons.history),
+        onPressed: () {
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => X68kTargetRxLogPage(shared: shared),
+          ));
+        },
       ),
     ];
   }
@@ -440,12 +426,12 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
     0x3B: (code: 0x0C, repeatable: true), // ← → CH_DOWN
   };
 
-  /// SHIFT (常時) または OPT.2 (OPT2 EN 受信済 & ON) が現在押されているか。
+  /// SHIFT (常時) または OPT.2 (OPT2 EN 受信済 & 有効) が現在押されているか。
   /// 仮想キーボードでは sticky 化された modifier も `_pressed` に含まれる。
   bool _remoteModifierHeld() {
     if (_pressed.contains(0x70)) return true; // SHIFT
-    if (_pressed.contains(0x73) && widget.shared.displayOpt2EnBit == 1) {
-      return true; // OPT.2 (本体が OPT2 EN を ON にしたとき限定)
+    if (_pressed.contains(0x73) && widget.shared.displayOpt2Enabled) {
+      return true; // OPT.2 (本体が OPT2 EN を有効化したとき限定)
     }
     return false;
   }
