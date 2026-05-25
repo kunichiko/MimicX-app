@@ -375,6 +375,13 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
   Timer? _repeatTimer;
   int? _repeatScancode;
 
+  // REMOTE 連続発射用の専用タイマ。キーボード側のリピート (_repeatTimer) とは
+  // 独立に動かす (X68000 SET REPEAT の影響を受けず、コマンド固有の Duration で
+  // 回す)。シングルインスタンスで運用し、別の REMOTE-repeatable キーが押された
+  // ら上書きする (キーボード _repeatTimer と同じモデル)。
+  Timer? _remoteRepeatTimer;
+  int? _remoteRepeatScancode;
+
   // リピートさせないキー (モディファイア / LED トグル系)
   //   0x5A: かな        0x5B: ローマ字    0x5C: コード入力
   //   0x5D: CAPS        0x5E: INS         0x5F: ひらがな   0x60: 全角
@@ -394,37 +401,10 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
   // スキャンコード自体は X68000 にもパススルーされる (実機キーボードと同じ動き)。
   //
   // ホスト側でこの組み合わせを検出し、EMIT_REMOTE を firmware に送って REMOTE
-  // 端子から発射してもらう。マップに無いキーは何もしない。
-
-  /// scancode → (remote code, リピート可否) のマッピング。
-  /// リピート可否は X68000 マニュアル準拠で、押し続けに意味があるコードだけ true。
-  static final Map<int, ({int code, bool repeatable})> _remoteByScancode = {
-    // テンキー (チャンネル選局: 一発)
-    0x4B: (code: 0x10, repeatable: false), // 1 → CH 1
-    0x4C: (code: 0x11, repeatable: false), // 2 → CH 2
-    0x4D: (code: 0x12, repeatable: false), // 3 → CH 3
-    0x47: (code: 0x13, repeatable: false), // 4 → CH 4
-    0x48: (code: 0x14, repeatable: false), // 5 → CH 5
-    0x49: (code: 0x15, repeatable: false), // 6 → CH 6
-    0x43: (code: 0x16, repeatable: false), // 7 → CH 7
-    0x44: (code: 0x17, repeatable: false), // 8 → CH 8
-    0x45: (code: 0x18, repeatable: false), // 9 → CH 9
-    0x4F: (code: 0x19, repeatable: false), // 0 → CH 10
-    0x41: (code: 0x1A, repeatable: false), // * → CH 11
-    0x40: (code: 0x1B, repeatable: false), // ÷ → CH 12
-    // テンキー (機能: 一発)
-    0x51: (code: 0x06, repeatable: false), // . → MUTE
-    0x42: (code: 0x0F, repeatable: false), // - → SUPERIMPOSE
-    0x4A: (code: 0x09, repeatable: false), // = → VIDEO (TV/外部入力)
-    0x46: (code: 0x08, repeatable: false), // + → TV/COMPUTER
-    0x50: (code: 0x03, repeatable: false), // , → VOL_NORMAL
-    0x3F: (code: 0x04, repeatable: false), // CLR → CH_CALL
-    // 矢印 (押し続けで連続発射)
-    0x3C: (code: 0x01, repeatable: true), // ↑ → VOL_UP
-    0x3E: (code: 0x02, repeatable: true), // ↓ → VOL_DOWN
-    0x3D: (code: 0x0B, repeatable: true), // → → CH_UP
-    0x3B: (code: 0x0C, repeatable: true), // ← → CH_DOWN
-  };
+  // 端子から発射してもらう。
+  //
+  // scancode → コマンド の対応表は DisplayControlCommand 側で一元管理しており、
+  // ここでは byScancode() で引くだけ。割り当てが無いキーは何もしない。
 
   /// SHIFT (常時) または OPT.2 (OPT2 EN 受信済 & 有効) が現在押されているか。
   /// 仮想キーボードでは sticky 化された modifier も `_pressed` に含まれる。
@@ -437,22 +417,57 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
   }
 
   /// 初期押下時。SHIFT/OPT.2 同時押しで対応する REMOTE コードを発射する。
+  /// 現在のディスプレイ制御モード (X68000/X1) を `widget.shared.isX1Mode` で取得し、
+  /// モード別の `DisplayControlCommand` 一覧から該当キーを引く。
   /// CTRL EN との関係は実機未検証だが、本機能は本体発の制御 (CTRL EN 対象) では
   /// なく純粋なキーボード側の発射なので、CTRL EN とは独立に動く想定。
+  ///
+  /// コマンドに `remoteRepeatInterval` が設定されていれば、押下中はその間隔で
+  /// REMOTE を再発射し続ける専用 Timer をスケジュールする。
   void _maybeEmitRemoteOnPress(int scancode) {
-    final m = _remoteByScancode[scancode];
-    if (m == null) return;
+    final cmd = DisplayControlCommand.byScancode(
+      scancode,
+      x1Mode: widget.shared.isX1Mode,
+    );
+    if (cmd == null) return;
     if (!_remoteModifierHeld()) return;
-    widget.midi.emitRemote(m.code);
+    widget.midi.emitRemote(cmd.code);
+    _scheduleRemoteRepeat(scancode, cmd);
   }
 
-  /// キーリピートのたびに呼ばれる。リピート可フラグが立った REMOTE コードのみ再発射。
-  /// 直前から modifier が外れていたら何もしない。
-  void _maybeEmitRemoteOnRepeat(int scancode) {
-    final m = _remoteByScancode[scancode];
-    if (m == null || !m.repeatable) return;
-    if (!_remoteModifierHeld()) return;
-    widget.midi.emitRemote(m.code);
+  /// REMOTE 連続発射の Timer を仕掛ける。既存タイマがあれば差し替える
+  /// (キーボード _repeatTimer と同じモデル: 直近に押されたキーが優位)。
+  /// 押下中またはモディファイア解除時に自己キャンセルする。
+  void _scheduleRemoteRepeat(int scancode, DisplayControlCommand cmd) {
+    _remoteRepeatTimer?.cancel();
+    _remoteRepeatTimer = null;
+    _remoteRepeatScancode = null;
+    final interval = cmd.remoteRepeatInterval;
+    if (interval == null) return;
+    _remoteRepeatScancode = scancode;
+    _remoteRepeatTimer = Timer.periodic(interval, (_) {
+      // スキャンコードが離された / モディファイアが外れた / 別キーが優位になった
+      // のいずれかなら停止。
+      if (_remoteRepeatScancode != scancode ||
+          !_pressed.contains(scancode) ||
+          !_remoteModifierHeld()) {
+        _remoteRepeatTimer?.cancel();
+        _remoteRepeatTimer = null;
+        _remoteRepeatScancode = null;
+        return;
+      }
+      widget.midi.emitRemote(cmd.code);
+    });
+  }
+
+  /// 指定スキャンコードに紐づく REMOTE 連続発射タイマを停止する。
+  /// 該当キーが現在の繰り返し対象でなければ何もしない。
+  void _cancelRemoteRepeatFor(int scancode) {
+    if (_remoteRepeatScancode == scancode) {
+      _remoteRepeatTimer?.cancel();
+      _remoteRepeatTimer = null;
+      _remoteRepeatScancode = null;
+    }
   }
 
   // 押下ポップアップの表示制御。短いタップでも一定時間は表示しておく
@@ -495,6 +510,7 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
   @override
   void dispose() {
     _repeatTimer?.cancel();
+    _remoteRepeatTimer?.cancel();
     _popupShowTimer?.cancel();
     for (final t in _popupHideTimers.values) {
       t.cancel();
@@ -731,6 +747,7 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
         _repeatTimer?.cancel();
         _repeatScancode = null;
       }
+      _cancelRemoteRepeatFor(code);
       widget.midi.sendNoteOff(widget.channel, code);
       if (mounted) setState(() {});
     }
@@ -777,6 +794,7 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
         _repeatTimer?.cancel();
         _repeatScancode = null;
       }
+      _cancelRemoteRepeatFor(code);
       widget.midi.sendNoteOff(widget.channel, code);
     }
     // 短いタップでも吹き出しが視認できるよう、最低表示時間後に消す
@@ -867,6 +885,8 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
   }
 
   // shared.repeatIntervalMs 間隔で Note On を撃ち続ける (firmware 側は make コードを再送)
+  // REMOTE 連続発射はキーボード側ペースとは独立 (専用 _remoteRepeatTimer) なので
+  // ここでは扱わない。
   void _startRepeating(int code) {
     _repeatTimer = Timer.periodic(
       Duration(milliseconds: widget.shared.repeatIntervalMs),
@@ -877,9 +897,6 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
           return;
         }
         widget.midi.sendNoteOn(widget.channel, code, 127);
-        // VOL_UP/DOWN・CH_UP/DOWN など押し続け対応の REMOTE コードはここでも再発射する。
-        // 一発系 (MUTE 等) はマップで repeatable=false としているので発射されない。
-        _maybeEmitRemoteOnRepeat(code);
         // リピートのたびに軽い触覚フィードバック
         HapticFeedback.selectionClick();
       },

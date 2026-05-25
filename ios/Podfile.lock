@@ -1,27 +1,21 @@
 PODS:
   - Flutter (1.0.0)
-  - flutter_midi_command (0.4.2):
-    - Flutter
   - universal_ble (0.0.1):
     - Flutter
     - FlutterMacOS
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
-  - flutter_midi_command (from `.symlinks/plugins/flutter_midi_command/ios`)
   - universal_ble (from `.symlinks/plugins/universal_ble/darwin`)
 
 EXTERNAL SOURCES:
   Flutter:
     :path: Flutter
-  flutter_midi_command:
-    :path: ".symlinks/plugins/flutter_midi_command/ios"
   universal_ble:
     :path: ".symlinks/plugins/universal_ble/darwin"
 
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
-  flutter_midi_command: 28d867d5701407d94917c4c35ca0172d362e1611
   universal_ble: ff19787898040d721109c6324472e5dd4bc86adc
 
 PODFILE CHECKSUM: 9ba2bf8683de5cb4909dc7da2d92fd135d2092e3

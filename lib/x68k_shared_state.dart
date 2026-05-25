@@ -50,7 +50,7 @@ String interpretTargetRxByte(int byte) {
     return lit.isEmpty ? 'LED: (全消灯)' : 'LED: ${lit.join("+")}';
   }
   if ((byte & 0xC0) == 0x00) {
-    return 'TV: ${DisplayControlCommand.label(byte & 0x3F)}';
+    return 'TV: ${DisplayControlCommand.labelOf(byte & 0x3F)}';
   }
   if ((byte & 0xFC) == 0x48) {
     // 0b010010*X: KEY EN — キーボード→本体のキーコード送信許可。
@@ -82,77 +82,283 @@ String interpretTargetRxByte(int byte) {
   return 'Unknown';
 }
 
+/// 仮想キーボード上のキー = (スキャンコード, 人間可読名) のペア。
+/// `DisplayControlCommand` から参照される値オブジェクト。
+class KeyBinding {
+  /// X68000 スキャンコード (例: テンキー 1 = 0x4B)。
+  final int scancode;
+
+  /// キーの人間可読名 (例: "テンキー 1", "矢印 ↑")。
+  final String keyName;
+
+  const KeyBinding(this.scancode, this.keyName);
+}
+
 /// 専用ディスプレイ制御コマンド (X68000 → キーボード, 純正リモコンと同一コード)。
 /// 0x01-0x1F が定義済み。0x20 以降は予約。
+///
+/// 1 コマンド = 1 インスタンスにまとめており、各エントリが
+///   - `code`         : 純正リモコン互換のコード値 (0x01-0x1F)
+///   - `label`        : 日本語ラベル (受信ログ・snackbar 用)
+///   - `x68kBinding`  : X68000 モード時の仮想キーボードキー (SHIFT/OPT.2 + 押下で発射)
+///   - `x1Binding`    : X1   モード時の仮想キーボードキー
+///   - `repeatable`   : 押し続けで連続発射してよいか
+/// を持つ。仮想キーボード側 (x68k_keyboard_page.dart) はここから
+/// `byScancode(scancode, x1Mode: ...)` で引く形に統一しており、
+/// コード値・ラベル・キーアサインを全てこの 1 箇所だけで管理できるようにしてある。
+///
+/// X68000 / X1 モードは本体が `0b010100*X` で配ってくる `displayModeBit` で決まる
+/// (bit=1 → X68000, bit=0 → X1)。両モードで同じキーに割り当てる場合は両方に
+/// 同じ KeyBinding を指定する。片方が null の場合、そのモードでは仮想キーボード
+/// からは発射されない (本体経由でのみ届く)。
 class DisplayControlCommand {
-  static const int volUp = 0x01;
-  static const int volDown = 0x02;
-  static const int volNormal = 0x03;
-  static const int chCall = 0x04;
-  static const int reset = 0x05;
-  static const int mute = 0x06;
-  static const int powerOn = 0x07;
-  static const int tvCom = 0x08;
-  static const int video = 0x09;
-  static const int contrastNormal = 0x0A;
-  static const int chUp = 0x0B;
-  static const int chDown = 0x0C;
-  static const int powerOff = 0x0D;
-  static const int powerToggle = 0x0E;
-  static const int superToggle = 0x0F;
-  static const int ch1 = 0x10;
-  static const int ch2 = 0x11;
-  static const int ch3 = 0x12;
-  static const int ch4 = 0x13;
-  static const int ch5 = 0x14;
-  static const int ch6 = 0x15;
-  static const int ch7 = 0x16;
-  static const int ch8 = 0x17;
-  static const int ch9 = 0x18;
-  static const int ch10 = 0x19;
-  static const int ch11 = 0x1A;
-  static const int ch12 = 0x1B;
-  static const int tv = 0x1C;
-  static const int computer = 0x1D;
-  static const int super1 = 0x1E;
-  static const int super2 = 0x1F;
+  /// リモコンコード (0x01-0x1F)。
+  final int code;
+
+  /// 日本語ラベル (受信ログや snackbar での表示用)。
+  final String label;
+
+  /// X68000 モード時のバインディング。null = X68000 モードでは仮想キーボード発射なし。
+  final KeyBinding? x68kBinding;
+
+  /// X1 モード時のバインディング。null = X1 モードでは仮想キーボード発射なし。
+  final KeyBinding? x1Binding;
+
+  /// REMOTE 端子からの連続発射間隔。null = 連続発射しない (1 回のみ)。
+  /// 押下中、初回発射の後この間隔で REMOTE を再発射し続ける。
+  /// 例: VOL_UP/DOWN は短め (snappy)、CH_UP/DOWN は実機準拠で 1 秒間隔。
+  /// 一発系 (MUTE / CH 選局 等) は null。
+  /// キーボード側の NoteOn 再送ペース (X68000 の SET REPEAT で可変) とは独立に
+  /// 制御するため、固定 Duration で持つ。
+  final Duration? remoteRepeatInterval;
+
+  const DisplayControlCommand._({
+    required this.code,
+    required this.label,
+    this.x68kBinding,
+    this.x1Binding,
+    this.remoteRepeatInterval,
+  });
+
+  /// 現在のモードに対応するバインディング (なければ null)。
+  KeyBinding? bindingFor({required bool x1Mode}) =>
+      x1Mode ? x1Binding : x68kBinding;
+
+  // -------------------------------------------------------------------------
+  // 仮想キーボード上のキー定義 (両モードで参照される共通カタログ)。
+  // テンキー類は X68000 純正キーボードの並びに合わせている。
+  // -------------------------------------------------------------------------
+  static const _kArrowUp    = KeyBinding(0x3C, '矢印 ↑');
+  static const _kArrowDown  = KeyBinding(0x3E, '矢印 ↓');
+  static const _kArrowRight = KeyBinding(0x3D, '矢印 →');
+  static const _kArrowLeft  = KeyBinding(0x3B, '矢印 ←');
+  static const _kClr        = KeyBinding(0x3F, 'テンキー CLR');
+  static const _kDiv        = KeyBinding(0x40, 'テンキー /');
+  static const _kMul        = KeyBinding(0x41, 'テンキー *');
+  static const _kMinus      = KeyBinding(0x42, 'テンキー -');
+  static const _kPlus       = KeyBinding(0x46, 'テンキー +');
+  static const _kEqual      = KeyBinding(0x4A, 'テンキー =');
+  static const _kComma      = KeyBinding(0x50, 'テンキー ,');
+  static const _kDot        = KeyBinding(0x51, 'テンキー .');
+  static const _kNum0       = KeyBinding(0x4F, 'テンキー 0');
+  static const _kNum1       = KeyBinding(0x4B, 'テンキー 1');
+  static const _kNum2       = KeyBinding(0x4C, 'テンキー 2');
+  static const _kNum3       = KeyBinding(0x4D, 'テンキー 3');
+  static const _kNum4       = KeyBinding(0x47, 'テンキー 4');
+  static const _kNum5       = KeyBinding(0x48, 'テンキー 5');
+  static const _kNum6       = KeyBinding(0x49, 'テンキー 6');
+  static const _kNum7       = KeyBinding(0x43, 'テンキー 7');
+  static const _kNum8       = KeyBinding(0x44, 'テンキー 8');
+  static const _kNum9       = KeyBinding(0x45, 'テンキー 9');
+
+  // -------------------------------------------------------------------------
+  // コマンド一覧 (code 昇順)。
+  // 両モードで同じキーに割り当てるコマンドは x68kBinding/x1Binding 双方に同じ
+  // KeyBinding を指定。モード固有 (テンキー . = + の 3 つ) は片方のみ指定。
+  // -------------------------------------------------------------------------
+  static const volUp = DisplayControlCommand._(
+    code: 0x01,
+    label: 'ボリュームアップ',
+    x68kBinding: _kArrowUp, x1Binding: _kArrowUp,
+    remoteRepeatInterval: Duration(milliseconds: 100),
+  );
+  static const volDown = DisplayControlCommand._(
+    code: 0x02,
+    label: 'ボリュームダウン',
+    x68kBinding: _kArrowDown, x1Binding: _kArrowDown,
+    remoteRepeatInterval: Duration(milliseconds: 100),
+  );
+  static const volNormal = DisplayControlCommand._(
+    code: 0x03,
+    label: 'ボリュームノーマル',
+    x68kBinding: _kComma, x1Binding: _kComma,
+  );
+  static const chCall = DisplayControlCommand._(
+    code: 0x04,
+    label: 'チャンネルコール',
+    x68kBinding: _kClr, x1Binding: _kClr,
+  );
+  static const reset = DisplayControlCommand._(
+    code: 0x05,
+    label: 'テレビ画面リセット',
+  );
+  static const mute = DisplayControlCommand._(
+    code: 0x06,
+    label: 'ミュート',
+    x68kBinding: _kNum0, x1Binding: _kNum0,
+  );
+  static const ch16 = DisplayControlCommand._(
+    code: 0x07,
+    label: 'チャンネル 16',
+    // 仮想キーボードへの割り当てなし。
+  );
+  // モード固有: X68000 モードの テンキー . はテレビ⇔コンピュータ切り替え。
+  // X1 モードの テンキー . は computer (0x1D) を発射する。
+  static const tvCom = DisplayControlCommand._(
+    code: 0x08,
+    label: 'テレビ⇔コンピュータ',
+    x68kBinding: _kDot,
+  );
+  // モード固有: X68000 モードの テンキー = はテレビ⇔外部入力切り替え。
+  // X1 モードの テンキー = は tv (0x1C) を発射する。
+  static const video = DisplayControlCommand._(
+    code: 0x09,
+    label: 'テレビ⇔外部入力',
+    x68kBinding: _kEqual,
+  );
+  static const contrastNormal = DisplayControlCommand._(
+    code: 0x0A,
+    label: 'コントラストノーマル',
+  );
+  static const chUp = DisplayControlCommand._(
+    code: 0x0B,
+    label: 'チャンネルアップ',
+    x68kBinding: _kArrowRight, x1Binding: _kArrowRight,
+    remoteRepeatInterval: Duration(seconds: 1),
+  );
+  static const chDown = DisplayControlCommand._(
+    code: 0x0C,
+    label: 'チャンネルダウン',
+    x68kBinding: _kArrowLeft, x1Binding: _kArrowLeft,
+    remoteRepeatInterval: Duration(seconds: 1),
+  );
+  // 0x0D は未定義 (予約)。
+  static const powerToggle = DisplayControlCommand._(
+    code: 0x0E,
+    label: '電源 ON/OFF',
+  );
+  // モード固有: X68000 モードの テンキー + はスーパーインポーズ切り替え (0x0F)。
+  // X1 モードの テンキー + は super1 (0x1E) を発射する。
+  static const superToggle = DisplayControlCommand._(
+    code: 0x0F,
+    label: 'スーパーインポーズ',
+    x68kBinding: _kPlus,
+  );
+  static const ch1 = DisplayControlCommand._(
+    code: 0x10,
+    label: 'チャンネル 1',
+    x68kBinding: _kNum1, x1Binding: _kNum1,
+  );
+  static const ch2 = DisplayControlCommand._(
+    code: 0x11,
+    label: 'チャンネル 2',
+    x68kBinding: _kNum2, x1Binding: _kNum2,
+  );
+  static const ch3 = DisplayControlCommand._(
+    code: 0x12,
+    label: 'チャンネル 3',
+    x68kBinding: _kNum3, x1Binding: _kNum3,
+  );
+  static const ch4 = DisplayControlCommand._(
+    code: 0x13,
+    label: 'チャンネル 4',
+    x68kBinding: _kNum4, x1Binding: _kNum4,
+  );
+  static const ch5 = DisplayControlCommand._(
+    code: 0x14,
+    label: 'チャンネル 5',
+    x68kBinding: _kNum5, x1Binding: _kNum5,
+  );
+  static const ch6 = DisplayControlCommand._(
+    code: 0x15,
+    label: 'チャンネル 6',
+    x68kBinding: _kNum6, x1Binding: _kNum6,
+  );
+  static const ch7 = DisplayControlCommand._(
+    code: 0x16,
+    label: 'チャンネル 7',
+    x68kBinding: _kNum7, x1Binding: _kNum7,
+  );
+  static const ch8 = DisplayControlCommand._(
+    code: 0x17,
+    label: 'チャンネル 8',
+    x68kBinding: _kNum8, x1Binding: _kNum8,
+  );
+  static const ch9 = DisplayControlCommand._(
+    code: 0x18,
+    label: 'チャンネル 9',
+    x68kBinding: _kNum9, x1Binding: _kNum9,
+  );
+  static const ch10 = DisplayControlCommand._(
+    code: 0x19,
+    label: 'チャンネル 10',
+    x68kBinding: _kDiv, x1Binding: _kDiv,
+  );
+  static const ch11 = DisplayControlCommand._(
+    code: 0x1A,
+    label: 'チャンネル 11',
+    x68kBinding: _kMul, x1Binding: _kMul,
+  );
+  static const ch12 = DisplayControlCommand._(
+    code: 0x1B,
+    label: 'チャンネル 12',
+    x68kBinding: _kMinus, x1Binding: _kMinus,
+  );
+  // モード固有: X1 モードでのみ仮想キーボードからの発射対象。
+  static const tv = DisplayControlCommand._(
+    code: 0x1C,
+    label: 'テレビ画面',
+    x1Binding: _kEqual,
+  );
+  static const computer = DisplayControlCommand._(
+    code: 0x1D,
+    label: 'コンピュータ画面',
+    x1Binding: _kDot,
+  );
+  static const super1 = DisplayControlCommand._(
+    code: 0x1E,
+    label: 'スーパーインポーズ (コントラストダウン)',
+    x1Binding: _kPlus,
+  );
+  static const super2 = DisplayControlCommand._(
+    code: 0x1F,
+    label: 'スーパーインポーズ (コントラストノーマル)',
+  );
+
+  /// 全コマンド (code 昇順)。`labelOf` / `byScancode` の探索元。
+  static const List<DisplayControlCommand> all = [
+    volUp, volDown, volNormal, chCall, reset, mute, ch16, tvCom, video,
+    contrastNormal, chUp, chDown, powerToggle, superToggle,
+    ch1, ch2, ch3, ch4, ch5, ch6, ch7, ch8, ch9, ch10, ch11, ch12,
+    tv, computer, super1, super2,
+  ];
 
   /// 既知コードに日本語ラベルを返す。未知コードは "Unknown(0xXX)" を返す。
-  static String label(int code) {
-    switch (code) {
-      case volUp: return 'ボリュームアップ';
-      case volDown: return 'ボリュームダウン';
-      case volNormal: return 'ボリュームノーマル';
-      case chCall: return 'チャンネルコール';
-      case reset: return 'テレビ画面リセット';
-      case mute: return 'ミュート';
-      case powerOn: return '電源 ON';
-      case tvCom: return 'テレビ⇔コンピュータ';
-      case video: return 'テレビ⇔外部入力';
-      case contrastNormal: return 'コントラストノーマル';
-      case chUp: return 'チャンネルアップ';
-      case chDown: return 'チャンネルダウン';
-      case powerOff: return '電源 OFF';
-      case powerToggle: return '電源 ON/OFF';
-      case superToggle: return 'スーパーインポーズ';
-      case ch1: return 'チャンネル 1';
-      case ch2: return 'チャンネル 2';
-      case ch3: return 'チャンネル 3';
-      case ch4: return 'チャンネル 4';
-      case ch5: return 'チャンネル 5';
-      case ch6: return 'チャンネル 6';
-      case ch7: return 'チャンネル 7';
-      case ch8: return 'チャンネル 8';
-      case ch9: return 'チャンネル 9';
-      case ch10: return 'チャンネル 10';
-      case ch11: return 'チャンネル 11';
-      case ch12: return 'チャンネル 12';
-      case tv: return 'テレビ画面';
-      case computer: return 'コンピュータ画面';
-      case super1: return 'スーパーインポーズ (コントラストダウン)';
-      case super2: return 'スーパーインポーズ (コントラストノーマル)';
-      default: return 'Unknown(0x${code.toRadixString(16).padLeft(2, '0')})';
+  static String labelOf(int code) {
+    for (final c in all) {
+      if (c.code == code) return c.label;
     }
+    return 'Unknown(0x${code.toRadixString(16).padLeft(2, '0')})';
+  }
+
+  /// 仮想キーボードのスキャンコードから、現在モードに対応するコマンドを引く。
+  /// 該当キーに割り当てが無い場合は null。
+  static DisplayControlCommand? byScancode(int scancode, {required bool x1Mode}) {
+    for (final c in all) {
+      final b = x1Mode ? c.x1Binding : c.x68kBinding;
+      if (b != null && b.scancode == scancode) return c;
+    }
+    return null;
   }
 }
 
@@ -176,7 +382,8 @@ class X68kKeyboardSharedState extends ChangeNotifier {
   // 専用ディスプレイ制御 (TV リモコン) 関連の状態フラグ。
   // いずれも X68000 起動時の初期値が不明なので「未受信 = null」「受信後にビット値を保持」とする。
   // 既知の bit 割り当て:
-  //   - displayModeBit:   0b010100*X → X68k/X1 モード選択。極性未検証
+  //   - displayModeBit:   0b010100*X → X68k/X1 モード選択。
+  //                                    実機観測で bit=1 が X68000, bit=0 が X1
   //   - displayCtrlEnBit: 0b010110*X → 本体発ディスプレイ制御の有効/無効。極性未検証
   //   - displayOpt2EnBit: 0b010111*X → OPT.2 + キーでの制御許可/禁止。
   //                                    実機観測で bit=0 が許可 (= inverted logic)
@@ -208,6 +415,11 @@ class X68kKeyboardSharedState extends ChangeNotifier {
   /// OPT.2 + キーで制御コマンドを発射してよいか。実機確認済み: bit=0 が許可。
   /// 未受信 (= null) は false 扱い。
   bool get displayOpt2Enabled => _displayOpt2EnBit == 0;
+
+  /// 現在のディスプレイ制御モードが X1 互換モードか。
+  /// 実機観測で `displayModeBit` は bit=1 が X68000, bit=0 が X1。
+  /// 未受信 (null) のときは X68000 既定 (= false) として扱う。
+  bool get isX1Mode => _displayModeBit == 0;
 
   bool isLedOn(int scancode) => _ledOn.contains(scancode);
 
