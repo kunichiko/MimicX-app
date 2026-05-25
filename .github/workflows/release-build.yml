@@ -241,6 +241,38 @@ jobs:
       - name: Analyze
         run: flutter analyze --no-fatal-infos
 
+      - name: Setup App Store Connect API key
+        shell: bash
+        run: |
+          set -euo pipefail
+          # archive 時に automatic signing で `-allowProvisioningUpdates` を使うために
+          # App Store Connect API キーをここで .p8 に書き出しておく (TestFlight upload
+          # ステップでも同じパスを再利用する)。
+          for name in APPSTORE_ISSUER_ID APPSTORE_KEY_ID APPSTORE_PRIVATE_KEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::GitHub Secret ${name} is required for iOS archive (automatic provisioning) and TestFlight upload"
+              exit 1
+            fi
+          done
+
+          KEY_DIR="${HOME}/.appstoreconnect/private_keys"
+          KEY_PATH="${KEY_DIR}/AuthKey_${APPSTORE_KEY_ID}.p8"
+          mkdir -p "${KEY_DIR}"
+
+          if [[ "${APPSTORE_PRIVATE_KEY}" == *"BEGIN PRIVATE KEY"* ]]; then
+            printf '%s' "${APPSTORE_PRIVATE_KEY}" | perl -pe 's/\\n/\n/g; s/\r$//' > "${KEY_PATH}"
+          else
+            printf '%s' "${APPSTORE_PRIVATE_KEY}" | base64 --decode > "${KEY_PATH}"
+          fi
+
+          if ! grep -q "BEGIN PRIVATE KEY" "${KEY_PATH}"; then
+            echo "::error::APPSTORE_PRIVATE_KEY must be the contents of the App Store Connect API key .p8 file, or its base64-encoded value"
+            exit 1
+          fi
+
+          chmod 600 "${KEY_PATH}"
+          echo "APPSTORE_KEY_PATH=${KEY_PATH}" >> "${GITHUB_ENV}"
+
       - name: Install iOS signing assets
         shell: bash
         run: |
@@ -339,6 +371,16 @@ jobs:
           --build-name=${{ needs.prepare.outputs.app_version }}
           --build-number=${{ needs.prepare.outputs.build_number }}
 
+      # Archive は automatic signing + App Store Connect API キーで実行する。
+      # Flutter 3.44 で iOS 側プラグインが SPM (Swift Package Manager) 配信に変わり、
+      # `shared_preferences_foundation_shared_preferences_foundation` のような
+      # 暗黙のリソースバンドルサブターゲットが増えた。これらは
+      # PRODUCT_BUNDLE_IDENTIFIER を持たないので manual signing で
+      # PROVISIONING_PROFILE_SPECIFIER を command-line から全ターゲットに被せると
+      # "does not support provisioning profiles" で archive が失敗する。
+      # automatic signing にすればリソースバンドルは「署名不要」と扱われ、Runner 本体
+      # だけが署名される。最終 IPA は次の export ステップで manual signing の
+      # ExportOptions.plist に従って再署名するので、配布用 profile はそこで適用される。
       - name: Archive iOS app
         run: >
           xcodebuild archive
@@ -347,10 +389,12 @@ jobs:
           -configuration Release
           -sdk iphoneos
           -archivePath build/ios/archive/Runner.xcarchive
+          -allowProvisioningUpdates
+          -authenticationKeyIssuerID "${APPSTORE_ISSUER_ID}"
+          -authenticationKeyID "${APPSTORE_KEY_ID}"
+          -authenticationKeyPath "${APPSTORE_KEY_PATH}"
           DEVELOPMENT_TEAM="${APPLE_TEAM_ID}"
-          CODE_SIGN_STYLE=Manual
-          PROVISIONING_PROFILE_SPECIFIER="${IOS_PROFILE_NAME}"
-          CODE_SIGN_IDENTITY="Apple Distribution"
+          CODE_SIGN_STYLE=Automatic
 
       - name: Export iOS IPA
         run: >
@@ -358,6 +402,10 @@ jobs:
           -archivePath build/ios/archive/Runner.xcarchive
           -exportPath build/ios/ipa
           -exportOptionsPlist "${RUNNER_TEMP}/ExportOptions.plist"
+          -allowProvisioningUpdates
+          -authenticationKeyIssuerID "${APPSTORE_ISSUER_ID}"
+          -authenticationKeyID "${APPSTORE_KEY_ID}"
+          -authenticationKeyPath "${APPSTORE_KEY_PATH}"
 
       - name: Package iOS artifacts
         id: package
@@ -381,22 +429,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "${HOME}/.appstoreconnect/private_keys"
-          KEY_PATH="${HOME}/.appstoreconnect/private_keys/AuthKey_${APPSTORE_KEY_ID}.p8"
-
-          if [[ "${APPSTORE_PRIVATE_KEY}" == *"BEGIN PRIVATE KEY"* ]]; then
-            printf '%s' "${APPSTORE_PRIVATE_KEY}" | perl -pe 's/\\n/\n/g; s/\r$//' > "${KEY_PATH}"
-          else
-            printf '%s' "${APPSTORE_PRIVATE_KEY}" | base64 --decode > "${KEY_PATH}"
-          fi
-
-          if ! grep -q "BEGIN PRIVATE KEY" "${KEY_PATH}"; then
-            echo "::error::APPSTORE_PRIVATE_KEY must be the contents of the App Store Connect API key .p8 file, or its base64-encoded value"
-            exit 1
-          fi
-
-          chmod 600 "${KEY_PATH}"
-
+          # API キーは "Setup App Store Connect API key" で書き出し済 (APPSTORE_KEY_PATH)。
           IPA=$(find build/ios/ipa -name '*.ipa' -type f | head -n 1)
           xcrun altool --upload-app \
             -f "${IPA}" \
