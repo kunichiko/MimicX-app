@@ -34,7 +34,13 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  flutter_midi_command: ^0.5.4
+  # flutter_midi_command: ^0.5.4   ← 旧 (upstream には SPM 対応未マージ)
+  # SPM 対応 + Windows winmm 安定化のため一時的にフォークを利用する。
+  # upstream PR がマージされ次第 pub.dev 版に戻すこと。
+  flutter_midi_command:
+    git:
+      url: https://github.com/kunichiko/FlutterMidiCommand.git
+      ref: feature/spm-support
   shared_preferences: ^2.3.0
   # 漢字をライン入力モードで送るために Shift-JIS のテーブルを利用する。
   # (charset の組み込み Encoder は実装にバグがあって Unicode→SJIS が壊れている
@@ -46,14 +52,16 @@ dependencies:
   package_info_plus: ^8.0.0
 
 dependency_overrides:
-  # Windows: flutter_midi_command_windows 0.3.0 は短い channel message も
-  # midiOutLongMsg + 即時 midiOutUnprepareHeader で送るためバッファ in-flight
-  # 中に書き換えが起き、winmmbase.dll が SHIFT+A 等の連続キー入力で
-  # 0xC0000005 で落ちる。third_party/flutter_midi_command_windows に
-  # midiOutShortMsg 経路を足したローカルパッチを置いている。
-  # upstream に修正が入り次第このオーバーライドを外す予定。
+  # Windows: flutter_midi_command_windows 0.3.0 は短い channel message を
+  # midiOutLongMsg + 即時 Unprepare で送るためバッファ in-flight 中に書き換えが
+  # 起き、winmmbase.dll が SHIFT+A 等の連続キー入力で 0xC0000005 で落ちる。
+  # フォーク先で midiOutShortMsg 経路 + teardown 順序修正 + 二重 disconnect
+  # 防止のパッチを当てている。upstream PR がマージされ次第このオーバーライドを
+  # 外して pub.dev 版に戻す。
   flutter_midi_command_windows:
-    path: third_party/flutter_midi_command_windows
+    git:
+      url: https://github.com/kunichiko/flutter_midi_command_windows.git
+      ref: fix/winmm-stability
 
 dev_dependencies:
   flutter_test:
