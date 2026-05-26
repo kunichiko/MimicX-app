@@ -242,7 +242,13 @@ class DisplayControlCommand {
     x68kBinding: _kArrowLeft, x1Binding: _kArrowLeft,
     remoteRepeatInterval: Duration(seconds: 1),
   );
-  // 0x0D は未定義 (予約)。
+  // 0x0D は X68000 純正キーボードの SHIFT/OPT.2 + キーには割り当てが無い
+  // (キーバインディング無し) が、SHARP リモコン本体には存在するコード。
+  // ホスト側からは仮想 TV リモコン UI 経由でのみ発射される。
+  static const subAudio = DisplayControlCommand._(
+    code: 0x0D,
+    label: '副音声',
+  );
   static const powerToggle = DisplayControlCommand._(
     code: 0x0E,
     label: '電源 ON/OFF',
@@ -338,7 +344,7 @@ class DisplayControlCommand {
   /// 全コマンド (code 昇順)。`labelOf` / `byScancode` の探索元。
   static const List<DisplayControlCommand> all = [
     volUp, volDown, volNormal, chCall, reset, mute, ch16, tvCom, video,
-    contrastNormal, chUp, chDown, powerToggle, superToggle,
+    contrastNormal, chUp, chDown, subAudio, powerToggle, superToggle,
     ch1, ch2, ch3, ch4, ch5, ch6, ch7, ch8, ch9, ch10, ch11, ch12,
     tv, computer, super1, super2,
   ];
