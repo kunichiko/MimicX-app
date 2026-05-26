@@ -66,6 +66,7 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
         shared: _shared,
       ),
       LineInputMode(channel: widget.channel, shared: _shared),
+      TvRemoteMode(),
     ];
     // 起動直後に LED 状態を本体と同期する。X68000 からは "現在の LED 状態を
     // 問い合わせる" 直接的な手段が無いので、何か LED トグルキーを押して
@@ -2243,6 +2244,338 @@ class _LineInputBodyState extends State<_LineInputBody> {
                     ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ===========================================================================
+// TV リモコンモード
+// SHARP G0737SA "ディスプレイテレビ" 純正リモコンの配置を模した専用 UI。
+// 各ボタンは押下時に midi.emitRemote(code) を 1 回送出し、
+// DisplayControlCommand.remoteRepeatInterval が設定されているもの
+// (ボリュームアップ/ダウン等) は押下中その間隔で連続発射する。
+// channel は不要 (emitRemote は SysEx なので MIDI チャンネルに依存しない)。
+// ===========================================================================
+
+class TvRemoteMode extends ChannelMode {
+  @override
+  String get id => 'x68k_keyboard.tvRemote';
+
+  @override
+  String label(BuildContext context) => 'TVリモコン';
+
+  @override
+  Future<String?> onEnter(MidiService midi) async {
+    // リモコンは portrait が自然だが、landscape でも使えるよう向き固定は解除。
+    await OrientationHelper.unlock();
+    return null;
+  }
+
+  @override
+  Widget buildBody(BuildContext context, MidiService midi) {
+    return _TvRemoteBody(midi: midi);
+  }
+}
+
+class _TvRemoteBody extends StatefulWidget {
+  final MidiService midi;
+  const _TvRemoteBody({required this.midi});
+
+  @override
+  State<_TvRemoteBody> createState() => _TvRemoteBodyState();
+}
+
+class _TvRemoteBodyState extends State<_TvRemoteBody> {
+  // 押下中の REMOTE 連続発射用 Timer (volUp/volDown 等)。
+  // _pressedCode を見て自己キャンセルする。別キーが押されたら上書きする。
+  Timer? _repeatTimer;
+  int? _pressedCode;
+
+  @override
+  void dispose() {
+    _repeatTimer?.cancel();
+    super.dispose();
+  }
+
+  void _onPress(DisplayControlCommand cmd) {
+    widget.midi.emitRemote(cmd.code);
+    HapticFeedback.lightImpact();
+    _repeatTimer?.cancel();
+    _repeatTimer = null;
+    _pressedCode = cmd.code;
+    final interval = cmd.remoteRepeatInterval;
+    if (interval == null) return;
+    _repeatTimer = Timer.periodic(interval, (_) {
+      if (_pressedCode != cmd.code) {
+        _repeatTimer?.cancel();
+        _repeatTimer = null;
+        return;
+      }
+      widget.midi.emitRemote(cmd.code);
+    });
+  }
+
+  void _onRelease(DisplayControlCommand cmd) {
+    if (_pressedCode == cmd.code) {
+      _pressedCode = null;
+      _repeatTimer?.cancel();
+      _repeatTimer = null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xFF1a1a1a),
+      child: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // 4 列 × 6 行のグリッド。固定アスペクト比は持たず、画面の縦横に
+            // 合わせてセルが伸び縮みする (横長画面では横長セルになる)。
+            // 極端な縦長/横長を避けるため cellW/cellH を [0.6, 3.0] に制限。
+            // ラベル本体は FittedBox(scaleDown) で必ず収まるよう縮小される。
+            const cols = 4;
+            const rows = 6;
+            const minWHRatio = 0.6;
+            const maxWHRatio = 3.0;
+            const outerPadH = 12.0;
+            const outerPadV = 12.0;
+            const borderW = 1.0;
+            final availW =
+                constraints.maxWidth - (outerPadH + borderW) * 2;
+            final availH =
+                constraints.maxHeight - (outerPadV + borderW) * 2;
+            double cellW = availW / cols;
+            double cellH = availH / rows;
+            if (cellW < cellH * minWHRatio) cellH = cellW / minWHRatio;
+            if (cellW > cellH * maxWHRatio) cellW = cellH * maxWHRatio;
+            return Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: outerPadH, vertical: outerPadV),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2a2a2a),
+                  borderRadius: BorderRadius.circular(14),
+                  border:
+                      Border.all(color: Colors.grey.shade800, width: borderW),
+                ),
+                child: _buildGrid(cellW, cellH),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGrid(double cw, double ch) {
+    // 各セルは _TvRemoteButton (ラベルはボタン本体の表面に描画)。
+    // ボタンを置かないセルは SizedBox(cw, ch) でスペースだけ確保する。
+    // [subLabel] を指定すると上下 2 行 + 区切り横棒で描画 (トグルボタン表現)。
+    Widget btn(
+      DisplayControlCommand cmd,
+      String label, {
+      String? subLabel,
+      double fontSize = 13,
+    }) =>
+        _TvRemoteButton(
+          label: label,
+          subLabel: subLabel,
+          fontSize: fontSize,
+          width: cw,
+          height: ch,
+          onPress: () => _onPress(cmd),
+          onRelease: () => _onRelease(cmd),
+        );
+    final gap = SizedBox(width: cw, height: ch);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Row 0: テレビ/ビデオ/コンピュータ (左端) ... 電源 (右端)
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          btn(DisplayControlCommand.tvCom, 'テレビ・ビデオ',
+              subLabel: 'コンピュータ', fontSize: 9),
+          gap,
+          gap,
+          btn(DisplayControlCommand.powerToggle, '電源', fontSize: 14),
+        ]),
+        // Row 1: (左列 空), 音量小, 音量大, 消音
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          gap,
+          btn(DisplayControlCommand.volDown, '音量\n小', fontSize: 12),
+          btn(DisplayControlCommand.volUp, '音量\n大', fontSize: 12),
+          btn(DisplayControlCommand.mute, '消音', fontSize: 13),
+        ]),
+        // Row 2: 副音声, 1, 2, 3
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          btn(DisplayControlCommand.subAudio, '主音声',
+              subLabel: '副音声', fontSize: 11),
+          btn(DisplayControlCommand.ch1, '1', fontSize: 22),
+          btn(DisplayControlCommand.ch2, '2', fontSize: 22),
+          btn(DisplayControlCommand.ch3, '3', fontSize: 22),
+        ]),
+        // Row 3: (左列 空), 4, 5, 6
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          gap,
+          btn(DisplayControlCommand.ch4, '4', fontSize: 22),
+          btn(DisplayControlCommand.ch5, '5', fontSize: 22),
+          btn(DisplayControlCommand.ch6, '6', fontSize: 22),
+        ]),
+        // Row 4: テレビ/ビデオ, 7, 8, 9
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          btn(DisplayControlCommand.video, 'テレビ',
+              subLabel: 'ビデオ', fontSize: 11),
+          btn(DisplayControlCommand.ch7, '7', fontSize: 22),
+          btn(DisplayControlCommand.ch8, '8', fontSize: 22),
+          btn(DisplayControlCommand.ch9, '9', fontSize: 22),
+        ]),
+        // Row 5: ch コール, 10, 11, 12
+        Row(mainAxisSize: MainAxisSize.min, children: [
+          btn(DisplayControlCommand.chCall, 'ch\nコール', fontSize: 12),
+          btn(DisplayControlCommand.ch10, '10', fontSize: 18),
+          btn(DisplayControlCommand.ch11, '11', fontSize: 18),
+          btn(DisplayControlCommand.ch12, '12', fontSize: 18),
+        ]),
+      ],
+    );
+  }
+}
+
+/// TV リモコンの 1 ボタン。ボタン本体の中央にラベルを描画する。
+/// [subLabel] が指定された場合は label/subLabel を上下 2 行で表示し、間に
+/// 横棒の区切りを入れる (トグルボタンであることの視覚表現)。
+/// 連続発射対応のため [Listener] の pointer イベントで press/release を判定する。
+class _TvRemoteButton extends StatefulWidget {
+  final String label;
+  final String? subLabel;
+  final double fontSize;
+  final double width;
+  final double height;
+  final VoidCallback onPress;
+  final VoidCallback onRelease;
+
+  const _TvRemoteButton({
+    required this.label,
+    this.subLabel,
+    required this.fontSize,
+    required this.width,
+    required this.height,
+    required this.onPress,
+    required this.onRelease,
+  });
+
+  @override
+  State<_TvRemoteButton> createState() => _TvRemoteButtonState();
+}
+
+class _TvRemoteButtonState extends State<_TvRemoteButton> {
+  bool _pressed = false;
+
+  void _setPressed(bool v) {
+    if (_pressed == v) return;
+    setState(() => _pressed = v);
+  }
+
+  TextStyle get _labelStyle => TextStyle(
+        color: Colors.white.withValues(alpha: 0.95),
+        fontSize: widget.fontSize,
+        height: 1.1,
+        fontWeight: FontWeight.w500,
+      );
+
+  Widget _buildSingleLabel() => Text(
+        widget.label,
+        textAlign: TextAlign.center,
+        style: _labelStyle,
+        softWrap: false,
+        overflow: TextOverflow.visible,
+      );
+
+  /// label / 横棒区切り / subLabel の縦 3 段。トグル感を出す。
+  /// 横棒の長さは長い方のラベルの描画幅 × 1.1。
+  Widget _buildSplitLabel() {
+    double measure(String text) {
+      final tp = TextPainter(
+        text: TextSpan(text: text, style: _labelStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      return tp.width;
+    }
+
+    final w1 = measure(widget.label);
+    final w2 = measure(widget.subLabel!);
+    final lineWidth = (w1 > w2 ? w1 : w2) * 1.1;
+
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(widget.label,
+            textAlign: TextAlign.center,
+            style: _labelStyle,
+            softWrap: false,
+            overflow: TextOverflow.visible),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: SizedBox(
+            width: lineWidth,
+            height: 1,
+            child: ColoredBox(color: Colors.grey.shade500),
+          ),
+        ),
+        Text(widget.subLabel!,
+            textAlign: TextAlign.center,
+            style: _labelStyle,
+            softWrap: false,
+            overflow: TextOverflow.visible),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: widget.width,
+      height: widget.height,
+      child: Padding(
+        padding: const EdgeInsets.all(3),
+        child: Listener(
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: (_) {
+            _setPressed(true);
+            widget.onPress();
+          },
+          onPointerUp: (_) {
+            _setPressed(false);
+            widget.onRelease();
+          },
+          onPointerCancel: (_) {
+            _setPressed(false);
+            widget.onRelease();
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              color: _pressed
+                  ? const Color(0xFF555555)
+                  : const Color(0xFF1c1c1c),
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: Colors.grey.shade700, width: 0.6),
+            ),
+            padding: const EdgeInsets.all(3),
+            // FittedBox がセル内に必ず収まるよう自動的にラベルを縮小する。
+            // softWrap:false 付きの Text と組み合わせて「文字を折り返さず
+            // フォントサイズを下げる」挙動を実現する。
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.center,
+              child: widget.subLabel == null
+                  ? _buildSingleLabel()
+                  : _buildSplitLabel(),
+            ),
+          ),
         ),
       ),
     );
