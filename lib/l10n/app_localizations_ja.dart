@@ -87,6 +87,13 @@ class AppLocalizationsJa extends AppLocalizations {
   String get padModeLibbleRabble => 'リブルラブル';
 
   @override
+  String get padModeMsxMouse => 'MSX マウス';
+
+  @override
+  String get msxMouseFirmwareUpdateHint =>
+      'ファームウェアが MSX マウスに未対応の可能性があります。ファームウェアを更新してください。';
+
+  @override
   String deadZoneLabel(int percent) {
     return '方向キー不感エリア半径: $percent%';
   }

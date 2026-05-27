@@ -69,11 +69,15 @@ class _ModeScaffoldState extends State<ModeScaffold> {
   }
 
   /// onEnter 失敗時に Snackbar でユーザーに通知する。
+  /// モード側が `enterErrorHint` でヒント文を返した場合は改行で続けて表示する。
   void _showEnterError(ChannelMode mode, String reason) {
     final l = AppLocalizations.of(context);
     if (l == null) return;
+    final base = l.padModeSwitchFailed(mode.label(context), reason);
+    final hint = mode.enterErrorHint(context, reason);
+    final text = hint != null ? '$base\n$hint' : base;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(l.padModeSwitchFailed(mode.label(context), reason))),
+      SnackBar(content: Text(text)),
     );
   }
 

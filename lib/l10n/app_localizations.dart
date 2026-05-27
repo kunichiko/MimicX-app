@@ -230,6 +230,18 @@ abstract class AppLocalizations {
   /// **'Libble Rabble'**
   String get padModeLibbleRabble;
 
+  /// No description provided for @padModeMsxMouse.
+  ///
+  /// In en, this message translates to:
+  /// **'MSX Mouse'**
+  String get padModeMsxMouse;
+
+  /// No description provided for @msxMouseFirmwareUpdateHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Your firmware may not support MSX Mouse yet. Please update the firmware.'**
+  String get msxMouseFirmwareUpdateHint;
+
   /// No description provided for @deadZoneLabel.
   ///
   /// In en, this message translates to:
