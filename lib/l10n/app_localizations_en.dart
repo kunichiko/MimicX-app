@@ -89,6 +89,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get padModeLibbleRabble => 'Libble Rabble';
 
   @override
+  String get padModeMsxMouse => 'MSX Mouse';
+
+  @override
+  String get msxMouseFirmwareUpdateHint =>
+      'Your firmware may not support MSX Mouse yet. Please update the firmware.';
+
+  @override
   String deadZoneLabel(int percent) {
     return 'D-pad dead zone radius: $percent%';
   }

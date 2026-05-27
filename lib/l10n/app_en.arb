@@ -63,6 +63,8 @@
   "padModeAtari": "ATARI",
   "padModeMd6": "MD 6B",
   "padModeLibbleRabble": "Libble Rabble",
+  "padModeMsxMouse": "MSX Mouse",
+  "msxMouseFirmwareUpdateHint": "Your firmware may not support MSX Mouse yet. Please update the firmware.",
 
   "deadZoneLabel": "D-pad dead zone radius: {percent}%",
   "@deadZoneLabel": {

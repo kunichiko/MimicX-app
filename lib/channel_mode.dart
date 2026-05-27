@@ -51,4 +51,9 @@ abstract class ChannelMode extends ChangeNotifier {
   /// このモード固有の AppBar アクション (歯車以外)。デフォルトは空。
   /// テンキー表示トグルなどモード固有のトグル類はここで返す。
   List<Widget> buildActions(BuildContext context) => const [];
+
+  /// `onEnter` がエラーを返したときの SnackBar に併記するヒント文 (例: ファーム
+  /// 未対応の場合の更新依頼)。デフォルトは null (ヒントなし)。
+  /// `reason` は `onEnter` が返したエラー文字列 (ACK status のラベル等)。
+  String? enterErrorHint(BuildContext context, String reason) => null;
 }

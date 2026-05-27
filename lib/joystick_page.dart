@@ -43,6 +43,7 @@ class _JoystickPageState extends State<JoystickPage> {
       AtariMode(channel: widget.channel),
       Md6Mode(channel: widget.channel),
       LibbleRabbleMode(channel: widget.channel),
+      MsxMouseMode(channel: widget.channel),
     ];
   }
 
@@ -219,6 +220,55 @@ class LibbleRabbleMode extends ChannelMode {
   void dispose() {
     _settings.dispose();
     super.dispose();
+  }
+}
+
+/// MSX マウスモード (ファーム PAD_MODE_MSX_MOUSE = 3)。
+///
+/// joystick 端子の pin 8 (STROBE) と D0-D3 (pin 1-4) で MSX マウスプロトコルを
+/// エミュレートする。pin 6 = 左ボタン, pin 7 = 右ボタン。
+///
+/// ホスト→ファームの MIDI:
+///   - CC 0x30 (DX) / 0x31 (DY): デルタを送る (value=64 が中央、0..127 が -64..+63)
+///   - Note 19 / 20: 左 / 右ボタンの押下/解放
+///
+/// 連射などの設定は持たないので歯車アイコンは出さない (`buildSettings` は null)。
+class MsxMouseMode extends ChannelMode {
+  final int channel;
+
+  MsxMouseMode({required this.channel});
+
+  @override
+  String get id => 'joystick.msxMouse';
+
+  @override
+  String label(BuildContext context) =>
+      AppLocalizations.of(context)!.padModeMsxMouse;
+
+  @override
+  Future<String?> onEnter(MidiService midi) async {
+    // PAD_MODE_MSX_MOUSE = 3 (ファームの joystick.h と一致)
+    final result = await midi.setPadMode(3);
+    if (!result.isOk) return AckStatus.label(result.status);
+    return null;
+  }
+
+  @override
+  Widget buildBody(BuildContext context, MidiService midi) {
+    return _LandscapeGate(child: _MsxMouseLayout(midi: midi, channel: channel));
+  }
+
+  @override
+  Widget? buildSettings(BuildContext context) => null;
+
+  /// `setPadMode(3)` で INVALID_VALUE が返るのはファームが MSX マウスモードを
+  /// 知らない (= 古い版) ことを示すので、更新を促すヒント文を併記する。
+  @override
+  String? enterErrorHint(BuildContext context, String reason) {
+    if (reason == AckStatus.label(AckStatus.invalidValue)) {
+      return AppLocalizations.of(context)!.msxMouseFirmwareUpdateHint;
+    }
+    return null;
   }
 }
 
@@ -836,6 +886,223 @@ class _LibbleRabbleLayout extends StatelessWidget {
                 noteRight: MidiService.noteRight2,
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MSX マウスレイアウト: 左ボタン | トラックパッド | 右ボタン (横並び)
+// ---------------------------------------------------------------------------
+
+class _MsxMouseLayout extends StatelessWidget {
+  final MidiService midi;
+  final int channel;
+  const _MsxMouseLayout({required this.midi, required this.channel});
+
+  // ファーム joystick.c の NOTE_MSX_MOUSE_LEFT / NOTE_MSX_MOUSE_RIGHT と一致。
+  // joystick ボタン Note 1-18 と衝突しない値。
+  static const int _noteLeft = 19;
+  static const int _noteRight = 20;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+        child: Row(
+          children: [
+            _MsxMouseButton(
+              midi: midi, channel: channel,
+              note: _noteLeft, label: 'L',
+            ),
+            const SizedBox(width: 8),
+            Expanded(child: _MsxTrackpadSurface(midi: midi, channel: channel)),
+            const SizedBox(width: 8),
+            _MsxMouseButton(
+              midi: midi, channel: channel,
+              note: _noteRight, label: 'R',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// MSX マウス用トラックパッド。指のドラッグ量を累積し、定期 flush で
+/// CC 0x30 (DX) / 0x31 (DY) を送る。CC は 7bit (-64..+63) なので
+/// 超過分は複数 CC に分割して送出する。
+class _MsxTrackpadSurface extends StatefulWidget {
+  final MidiService midi;
+  final int channel;
+  const _MsxTrackpadSurface({required this.midi, required this.channel});
+
+  @override
+  State<_MsxTrackpadSurface> createState() => _MsxTrackpadSurfaceState();
+}
+
+class _MsxTrackpadSurfaceState extends State<_MsxTrackpadSurface> {
+  static const int _ccDx = 0x30;
+  static const int _ccDy = 0x31;
+  // 1 ピクセル = 何マウスカウント送るか。実機感度に合わせて要調整。
+  static const double _sensitivity = 1.0;
+  static const Duration _flushPeriod = Duration(milliseconds: 16);
+
+  double _accumDx = 0;
+  double _accumDy = 0;
+  Timer? _flushTimer;
+  Offset? _lastPos;
+
+  @override
+  void initState() {
+    super.initState();
+    _flushTimer = Timer.periodic(_flushPeriod, (_) => _flush());
+  }
+
+  @override
+  void dispose() {
+    _flushTimer?.cancel();
+    super.dispose();
+  }
+
+  void _flush() {
+    var dx = _accumDx.round();
+    var dy = _accumDy.round();
+    if (dx == 0 && dy == 0) return;
+    _accumDx -= dx;
+    _accumDy -= dy;
+
+    while (dx != 0) {
+      final chunk = dx.clamp(-63, 63);
+      widget.midi.sendCC(widget.channel, _ccDx, 64 + chunk);
+      dx -= chunk;
+    }
+    while (dy != 0) {
+      final chunk = dy.clamp(-63, 63);
+      widget.midi.sendCC(widget.channel, _ccDy, 64 + chunk);
+      dy -= chunk;
+    }
+  }
+
+  void _onPanStart(DragStartDetails d) {
+    _lastPos = d.localPosition;
+  }
+
+  void _onPanUpdate(DragUpdateDetails d) {
+    final last = _lastPos;
+    if (last == null) {
+      _lastPos = d.localPosition;
+      return;
+    }
+    final dx = d.localPosition.dx - last.dx;
+    final dy = d.localPosition.dy - last.dy;
+    _lastPos = d.localPosition;
+    _accumDx += dx * _sensitivity;
+    _accumDy += dy * _sensitivity;
+  }
+
+  void _onPanEnd(DragEndDetails d) {
+    _lastPos = null;
+  }
+
+  void _onPanCancel() {
+    _lastPos = null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onPanStart: _onPanStart,
+      onPanUpdate: _onPanUpdate,
+      onPanEnd: _onPanEnd,
+      onPanCancel: _onPanCancel,
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF1f1f1f),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFF555555), width: 1),
+        ),
+        child: const Center(
+          child: Text(
+            'TRACKPAD',
+            style: TextStyle(
+              color: Color(0xFF555555),
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 2,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MsxMouseButton extends StatefulWidget {
+  final MidiService midi;
+  final int channel;
+  final int note;
+  final String label;
+  const _MsxMouseButton({
+    required this.midi,
+    required this.channel,
+    required this.note,
+    required this.label,
+  });
+
+  @override
+  State<_MsxMouseButton> createState() => _MsxMouseButtonState();
+}
+
+class _MsxMouseButtonState extends State<_MsxMouseButton> {
+  bool _pressed = false;
+
+  void _down() {
+    if (_pressed) return;
+    setState(() => _pressed = true);
+    widget.midi.sendNoteOn(widget.channel, widget.note, 127);
+    HapticFeedback.lightImpact();
+  }
+
+  void _up() {
+    if (!_pressed) return;
+    setState(() => _pressed = false);
+    widget.midi.sendNoteOff(widget.channel, widget.note);
+  }
+
+  @override
+  void dispose() {
+    if (_pressed) widget.midi.sendNoteOff(widget.channel, widget.note);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => _down(),
+      onTapUp: (_) => _up(),
+      onTapCancel: () => _up(),
+      child: Container(
+        width: 64,
+        decoration: BoxDecoration(
+          color: _pressed ? const Color(0xFF505050) : const Color(0xFF222222),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: _pressed ? Colors.white : const Color(0xFF555555),
+            width: _pressed ? 2 : 1,
+          ),
+        ),
+        child: Center(
+          child: Text(
+            widget.label,
+            style: TextStyle(
+              color: _pressed ? Colors.white : Colors.grey.shade300,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ),
       ),
