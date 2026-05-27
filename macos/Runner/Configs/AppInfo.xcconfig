@@ -4,11 +4,14 @@
 // future. If not, the values below would default to using the project name when this becomes a
 // 'flutter create' template.
 
+// dev/prod 切替用の定義 (AppIdentity.xcconfig は CI で上書きされる)。
+#include "AppIdentity.xcconfig"
+
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = Mimic X
+PRODUCT_NAME = $(APP_DISPLAY_NAME)
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = jp.ohnaka.MimicX
+PRODUCT_BUNDLE_IDENTIFIER = $(APP_BUNDLE_ID)
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 jp.ohnaka. All rights reserved.

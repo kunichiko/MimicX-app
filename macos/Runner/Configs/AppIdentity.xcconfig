@@ -1,0 +1,8 @@
+// アプリの Bundle ID と表示名。
+// デフォルトはローカル開発用 (dev) で、GitHub リリース版とは別アプリとして
+// インストールできる (Bundle ID が異なるため UserDefaults / SharedPreferences
+// も自動的に分離される)。
+// GitHub Actions のリリースビルドは、ビルド前にこのファイルを prod 値に上書きする
+// (.github/workflows/release-build.yml の "Use prod identity" ステップ参照)。
+APP_BUNDLE_ID = jp.ohnaka.MimicX.dev
+APP_DISPLAY_NAME = Mimic X Dev
