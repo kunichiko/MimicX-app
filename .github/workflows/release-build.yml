@@ -170,12 +170,14 @@ jobs:
       - name: Build Android App Bundle
         run: >
           flutter build appbundle --release
+          -PisProdBuild=true
           --build-name=${{ needs.prepare.outputs.app_version }}
           --build-number=${{ needs.prepare.outputs.build_number }}
 
       - name: Build universal APK
         run: >
           flutter build apk --release
+          -PisProdBuild=true
           --build-name=${{ needs.prepare.outputs.app_version }}
           --build-number=${{ needs.prepare.outputs.build_number }}
 
@@ -240,6 +242,14 @@ jobs:
 
       - name: Analyze
         run: flutter analyze --no-fatal-infos
+
+      - name: Use prod identity (iOS)
+        shell: bash
+        run: |
+          cat > ios/Flutter/AppIdentity.xcconfig <<'EOF'
+          APP_BUNDLE_ID = jp.ohnaka.MimicX
+          APP_DISPLAY_NAME = Mimic X
+          EOF
 
       - name: Setup App Store Connect API key
         shell: bash
@@ -468,6 +478,14 @@ jobs:
       - name: Analyze
         run: flutter analyze --no-fatal-infos
 
+      - name: Use prod identity (macOS)
+        shell: bash
+        run: |
+          cat > macos/Runner/Configs/AppIdentity.xcconfig <<'EOF'
+          APP_BUNDLE_ID = jp.ohnaka.MimicX
+          APP_DISPLAY_NAME = Mimic X
+          EOF
+
       - name: Install macOS signing certificate
         shell: bash
         run: |
@@ -620,6 +638,14 @@ jobs:
 
       - name: Get dependencies
         run: flutter pub get
+
+      - name: Use prod identity (Windows)
+        shell: bash
+        run: |
+          cat > windows/runner/app_identity.h <<'EOF'
+          #pragma once
+          #define APP_DISPLAY_NAME L"Mimic X"
+          EOF
 
       - name: Build Windows release
         run: >

@@ -5,6 +5,13 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// ローカルビルドは jp.ohnaka.MimicX.dev / "Mimic X Dev" としてインストールされ、
+// GitHub Actions のリリースビルドだけが prod 値 (jp.ohnaka.MimicX / "Mimic X")
+// になる。CI は flutter build に -PisProdBuild=true を渡してこれを切替える。
+val isProdBuild = (findProperty("isProdBuild") as? String)?.toBoolean() ?: false
+val appBundleId = if (isProdBuild) "jp.ohnaka.MimicX" else "jp.ohnaka.MimicX.dev"
+val appDisplayName = if (isProdBuild) "Mimic X" else "Mimic X Dev"
+
 android {
     namespace = "jp.ohnaka.MimicX"
     compileSdk = flutter.compileSdkVersion
@@ -20,8 +27,9 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "jp.ohnaka.MimicX"
+        applicationId = appBundleId
+        // AndroidManifest.xml の android:label を切り替えるためのプレースホルダ。
+        manifestPlaceholders["appLabel"] = appDisplayName
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
