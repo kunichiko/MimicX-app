@@ -18,14 +18,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get homeAboutTooltip => 'About';
 
   @override
-  String get homeSearching => 'Searching for devices…';
+  String get homeSearching => 'Searching for adapters…';
 
   @override
-  String get homeNoDevicesTitle => 'No devices found';
+  String get homeNoDevicesTitle => 'No adapters found';
 
   @override
   String get homeNoDevicesHint =>
-      'Connect a Mimic X device and press the reload button in the top right.';
+      'Connect a Mimic X Adapter and press the reload button in the top right.';
 
   @override
   String get homeIncompatibleNote => 'Not Mimic X compatible (no response)';
@@ -42,7 +42,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deviceNotResponding =>
-      'No response from device (may not be Mimic X compatible)';
+      'No response from adapter (may not be Mimic X compatible)';
 
   @override
   String get noChannelsAvailable => 'No usable channels';
@@ -54,7 +54,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String protocolTooOld(String deviceVersion, String minVersion) {
-    return 'Firmware is too old (proto $deviceVersion, requires $minVersion or newer). Please update the device.';
+    return 'Firmware is too old (proto $deviceVersion, requires $minVersion or newer). Please update the adapter.';
   }
 
   @override
@@ -163,14 +163,14 @@ class AppLocalizationsEn extends AppLocalizations {
       'Could not connect to the adapter for renaming.';
 
   @override
-  String get connectionLost => 'Lost connection to the device. Rescanning…';
+  String get connectionLost => 'Lost connection to the adapter. Rescanning…';
 
   @override
   String get aboutTitle => 'About';
 
   @override
   String get aboutAppDescription =>
-      'USB-MIDI controller app for retro PC HID emulation. Use a smartphone as a joystick or keyboard for X68000 / MSX via the Mimic X device.';
+      'USB-MIDI controller app for retro PC HID emulation. Use a smartphone as a joystick or keyboard for X68000 / MSX via the Mimic X Adapter.';
 
   @override
   String aboutVersion(String version, String build) {

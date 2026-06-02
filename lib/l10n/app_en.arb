@@ -6,9 +6,9 @@
 
   "homeRescanTooltip": "Rescan",
   "homeAboutTooltip": "About",
-  "homeSearching": "Searching for devices…",
-  "homeNoDevicesTitle": "No devices found",
-  "homeNoDevicesHint": "Connect a Mimic X device and press the reload button in the top right.",
+  "homeSearching": "Searching for adapters…",
+  "homeNoDevicesTitle": "No adapters found",
+  "homeNoDevicesHint": "Connect a Mimic X Adapter and press the reload button in the top right.",
   "homeIncompatibleNote": "Not Mimic X compatible (no response)",
   "homeFirmwareVersion": "fw {fwVersion} (proto {protoVersion})",
   "@homeFirmwareVersion": {
@@ -25,7 +25,7 @@
     }
   },
 
-  "deviceNotResponding": "No response from device (may not be Mimic X compatible)",
+  "deviceNotResponding": "No response from adapter (may not be Mimic X compatible)",
   "noChannelsAvailable": "No usable channels",
   "unsupportedFunction": "Unsupported function: {hidType} / {target}",
   "@unsupportedFunction": {
@@ -34,7 +34,7 @@
       "target": { "type": "String" }
     }
   },
-  "protocolTooOld": "Firmware is too old (proto {deviceVersion}, requires {minVersion} or newer). Please update the device.",
+  "protocolTooOld": "Firmware is too old (proto {deviceVersion}, requires {minVersion} or newer). Please update the adapter.",
   "@protocolTooOld": {
     "placeholders": {
       "deviceVersion": { "type": "String" },
@@ -102,10 +102,10 @@
   "deviceRenameClearButton": "Reset to default",
   "deviceRenameConnecting": "Connecting…",
   "deviceRenameConnectFailed": "Could not connect to the adapter for renaming.",
-  "connectionLost": "Lost connection to the device. Rescanning…",
+  "connectionLost": "Lost connection to the adapter. Rescanning…",
 
   "aboutTitle": "About",
-  "aboutAppDescription": "USB-MIDI controller app for retro PC HID emulation. Use a smartphone as a joystick or keyboard for X68000 / MSX via the Mimic X device.",
+  "aboutAppDescription": "USB-MIDI controller app for retro PC HID emulation. Use a smartphone as a joystick or keyboard for X68000 / MSX via the Mimic X Adapter.",
   "aboutVersion": "Version {version} ({build})",
   "@aboutVersion": {
     "placeholders": {

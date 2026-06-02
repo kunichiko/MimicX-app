@@ -18,13 +18,13 @@ class AppLocalizationsJa extends AppLocalizations {
   String get homeAboutTooltip => 'アプリについて';
 
   @override
-  String get homeSearching => 'デバイスを検索中…';
+  String get homeSearching => 'アダプタを検索中…';
 
   @override
-  String get homeNoDevicesTitle => 'デバイスが見つかりません';
+  String get homeNoDevicesTitle => 'アダプタが見つかりません';
 
   @override
-  String get homeNoDevicesHint => 'Mimic X デバイスを接続して、右上のリロードボタンを押してください';
+  String get homeNoDevicesHint => 'Mimic X アダプタを接続して、右上のリロードボタンを押してください';
 
   @override
   String get homeIncompatibleNote => 'Mimic X 非対応 (応答なし)';
@@ -40,7 +40,7 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
-  String get deviceNotResponding => 'デバイスから応答がありません (Mimic X 互換ではない可能性)';
+  String get deviceNotResponding => 'アダプタから応答がありません (Mimic X 互換ではない可能性)';
 
   @override
   String get noChannelsAvailable => '使用可能なチャンネルがありません';
@@ -52,7 +52,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String protocolTooOld(String deviceVersion, String minVersion) {
-    return 'ファームウェアが古すぎます (proto $deviceVersion, 要 $minVersion 以上)。デバイスを更新してください';
+    return 'ファームウェアが古すぎます (proto $deviceVersion, 要 $minVersion 以上)。アダプタを更新してください';
   }
 
   @override
@@ -158,14 +158,14 @@ class AppLocalizationsJa extends AppLocalizations {
   String get deviceRenameConnectFailed => '名前変更のための接続に失敗しました。';
 
   @override
-  String get connectionLost => 'デバイスとの通信が途絶えました。再スキャンします。';
+  String get connectionLost => 'アダプタとの通信が途絶えました。再スキャンします。';
 
   @override
   String get aboutTitle => 'このアプリについて';
 
   @override
   String get aboutAppDescription =>
-      'Mimic X デバイスを介して、スマートフォンをレトロ PC (X68000 / MSX等) のジョイスティックやキーボードとして使うための USB-MIDI コントローラアプリです。';
+      'Mimic X アダプタを介して、スマートフォンをレトロ PC (X68000 / MSX等) のジョイスティックやキーボードとして使うための USB-MIDI コントローラアプリです。';
 
   @override
   String aboutVersion(String version, String build) {

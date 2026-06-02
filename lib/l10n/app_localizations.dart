@@ -119,19 +119,19 @@ abstract class AppLocalizations {
   /// No description provided for @homeSearching.
   ///
   /// In en, this message translates to:
-  /// **'Searching for devices…'**
+  /// **'Searching for adapters…'**
   String get homeSearching;
 
   /// No description provided for @homeNoDevicesTitle.
   ///
   /// In en, this message translates to:
-  /// **'No devices found'**
+  /// **'No adapters found'**
   String get homeNoDevicesTitle;
 
   /// No description provided for @homeNoDevicesHint.
   ///
   /// In en, this message translates to:
-  /// **'Connect a Mimic X device and press the reload button in the top right.'**
+  /// **'Connect a Mimic X Adapter and press the reload button in the top right.'**
   String get homeNoDevicesHint;
 
   /// No description provided for @homeIncompatibleNote.
@@ -155,7 +155,7 @@ abstract class AppLocalizations {
   /// No description provided for @deviceNotResponding.
   ///
   /// In en, this message translates to:
-  /// **'No response from device (may not be Mimic X compatible)'**
+  /// **'No response from adapter (may not be Mimic X compatible)'**
   String get deviceNotResponding;
 
   /// No description provided for @noChannelsAvailable.
@@ -173,7 +173,7 @@ abstract class AppLocalizations {
   /// No description provided for @protocolTooOld.
   ///
   /// In en, this message translates to:
-  /// **'Firmware is too old (proto {deviceVersion}, requires {minVersion} or newer). Please update the device.'**
+  /// **'Firmware is too old (proto {deviceVersion}, requires {minVersion} or newer). Please update the adapter.'**
   String protocolTooOld(String deviceVersion, String minVersion);
 
   /// No description provided for @protocolNewerWarningTitle.
@@ -353,7 +353,7 @@ abstract class AppLocalizations {
   /// No description provided for @connectionLost.
   ///
   /// In en, this message translates to:
-  /// **'Lost connection to the device. Rescanning…'**
+  /// **'Lost connection to the adapter. Rescanning…'**
   String get connectionLost;
 
   /// No description provided for @aboutTitle.
@@ -365,7 +365,7 @@ abstract class AppLocalizations {
   /// No description provided for @aboutAppDescription.
   ///
   /// In en, this message translates to:
-  /// **'USB-MIDI controller app for retro PC HID emulation. Use a smartphone as a joystick or keyboard for X68000 / MSX via the Mimic X device.'**
+  /// **'USB-MIDI controller app for retro PC HID emulation. Use a smartphone as a joystick or keyboard for X68000 / MSX via the Mimic X Adapter.'**
   String get aboutAppDescription;
 
   /// No description provided for @aboutVersion.

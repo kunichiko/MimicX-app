@@ -264,8 +264,13 @@ class _HomePageState extends State<HomePage> {
 
   void _routeToChannel(MidiDeviceInfo device, ChannelAssignment ch) async {
     Widget? page;
+    final deviceName = _displayNameFor(device);
     if (ch.hidType == HidType.joystick) {
-      page = JoystickPage(midi: _midi, channel: ch.midiChannel);
+      page = JoystickPage(
+        midi: _midi,
+        channel: ch.midiChannel,
+        deviceName: deviceName,
+      );
     } else if (ch.hidType == HidType.keyboard && ch.targetSystem == TargetSystem.x68000) {
       // 同じデバイスに X68000 マウスもあれば mouseChannel を渡してトラックパッド表示
       final mouseCh = device.identity?.channels
@@ -278,6 +283,7 @@ class _HomePageState extends State<HomePage> {
         midi: _midi,
         channel: ch.midiChannel,
         mouseChannel: mouseCh?.midiChannel,
+        deviceName: deviceName,
       );
     }
 

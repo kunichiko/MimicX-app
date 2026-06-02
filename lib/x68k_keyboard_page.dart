@@ -33,11 +33,16 @@ class X68kKeyboardPage extends StatefulWidget {
   /// 同一デバイスがマウス機能も持つときの MIDI チャンネル。null ならトラックパッド非表示。
   final int? mouseChannel;
 
+  /// AppBar title 下に表示するアダプタ名 (ニックネームまたは USB iProduct)。
+  /// null/空ならサブタイトル非表示。
+  final String? deviceName;
+
   const X68kKeyboardPage({
     super.key,
     required this.midi,
     this.channel = MidiService.chKeyboardDefault,
     this.mouseChannel,
+    this.deviceName,
   });
 
   @override
@@ -123,6 +128,7 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
   Widget build(BuildContext context) {
     return ModeScaffold(
       title: AppLocalizations.of(context)!.x68kKeyboardTitle,
+      subtitle: widget.deviceName,
       midi: widget.midi,
       modes: _modes,
       persistenceKey: 'x68k_keyboard.selectedMode',
@@ -926,7 +932,9 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
           builder: (context, constraints) {
             final showTrackpad = hasMouse && widget.trackpadVisible;
             if (!showTrackpad) {
-              return _buildKeyboard(constraints);
+              // トラックパッドが無い (= マウス未搭載 or 非表示) ときは、空いた縦領域を
+              // キーボードが埋めるように h を縦方向に伸ばす。
+              return _buildKeyboard(constraints, fillHeight: true);
             }
             // トラックパッドの最小高 (これ以上は確保する)
             const trackpadMinH = 100.0;
@@ -973,7 +981,7 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
   static const double _rowsPerH = 6.15;
   static const double _hPerU = 0.95;
 
-  Widget _buildKeyboard(BoxConstraints constraints) {
+  Widget _buildKeyboard(BoxConstraints constraints, {bool fillHeight = false}) {
     // 各キーは declared width 内にパディングを内包するため、unit 計算は単純な分割で OK
     final outerPadding = 16.0;
     final innerPad = 8.0;
@@ -990,7 +998,14 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
         if (uByHeight < u) u = uByHeight;
       }
     }
-    final h = u * _hPerU;
+    double h = u * _hPerU;
+    // fillHeight=true のときは、u (キー幅) が width で律速されて空いた縦余白を、
+    // h (行高) を独立に伸ばして埋める。キーがやや縦長になるが、幅を保ったまま
+    // 画面いっぱいまで広がる挙動になる。
+    if (fillHeight && constraints.maxHeight.isFinite) {
+      final fillH = (constraints.maxHeight - innerPadTotal) / _rowsPerH;
+      if (fillH > h) h = fillH;
+    }
     _h = h;  // ポップアップサイズ計算用に保存
 
     // 縦長キー (Return / numpad ENTER) を Stack で重ねるための位置計算
@@ -1081,22 +1096,28 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
 
   // BREAK COPY F1-F10 | かな ローマ字 コード入力 | CAPS 記号入力 登録 HELP
   Widget _buildFunctionRow(double u, double h) {
-    // main = 12.8u (BREAK + COPY + gap*2 + F1-F10)
+    // F1-F10 は幅 1.27u に拡張して、F10 の右端が下の段の BS / Return キーの
+    // 右端 (15.5u) と揃うようにする。
+    //   main = BREAK(1.2) + COPY(1.2) + gap(0.2) + F1-F5(5*1.27) + gap(0.2) + F6-F10(5*1.27)
+    //        = 1.2 + 1.2 + 0.2 + 6.35 + 0.2 + 6.35 = 15.5u
     // cursor = 3u (かな + ローマ字 + コード入力)
     // numpad = 4u (CAPS + 記号入力 + 登録 + HELP)
+    const fKeyW = 1.27;
     return _row3(
       u: u, h: h,
       main: [
         _key('BREAK', 0x61, u * 1.2, h),
         _key('COPY', 0x62, u * 1.2, h),
         SizedBox(width: u * 0.2),
-        _key('F1', 0x63, u, h), _key('F2', 0x64, u, h), _key('F3', 0x65, u, h),
-        _key('F4', 0x66, u, h), _key('F5', 0x67, u, h),
+        _key('F1', 0x63, u * fKeyW, h), _key('F2', 0x64, u * fKeyW, h),
+        _key('F3', 0x65, u * fKeyW, h), _key('F4', 0x66, u * fKeyW, h),
+        _key('F5', 0x67, u * fKeyW, h),
         SizedBox(width: u * 0.2),
-        _key('F6', 0x68, u, h), _key('F7', 0x69, u, h), _key('F8', 0x6A, u, h),
-        _key('F9', 0x6B, u, h), _key('F10', 0x6C, u, h),
+        _key('F6', 0x68, u * fKeyW, h), _key('F7', 0x69, u * fKeyW, h),
+        _key('F8', 0x6A, u * fKeyW, h), _key('F9', 0x6B, u * fKeyW, h),
+        _key('F10', 0x6C, u * fKeyW, h),
       ],
-      mainSumU: 1.2 + 1.2 + 0.2 + 5 + 0.2 + 5,
+      mainSumU: 1.2 + 1.2 + 0.2 + 5 * fKeyW + 0.2 + 5 * fKeyW,
       cursor: [
         _keyMulti(['かな'], 0x5A, u, h),
         _keyMulti(['ローマ字'], 0x5B, u, h),

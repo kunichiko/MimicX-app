@@ -21,10 +21,15 @@ class JoystickPage extends StatefulWidget {
   final MidiService midi;
   final int channel;
 
+  /// AppBar title 下に表示するアダプタ名 (ニックネームまたは USB iProduct)。
+  /// null/空ならサブタイトル非表示。
+  final String? deviceName;
+
   const JoystickPage({
     super.key,
     required this.midi,
     this.channel = MidiService.chJoystickDefault,
+    this.deviceName,
   });
 
   @override
@@ -72,6 +77,7 @@ class _JoystickPageState extends State<JoystickPage> {
     final l = AppLocalizations.of(context)!;
     return ModeScaffold(
       title: l.joystickTitle,
+      subtitle: widget.deviceName,
       midi: widget.midi,
       modes: _modes,
       persistenceKey: 'joystick.selectedMode',

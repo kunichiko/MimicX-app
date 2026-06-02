@@ -20,6 +20,9 @@ import 'midi_service.dart';
 
 class ModeScaffold extends StatefulWidget {
   final String title;
+
+  /// AppBar に title の下に小さく表示するサブタイトル (アダプタ名など)。空/null なら非表示。
+  final String? subtitle;
   final MidiService midi;
   final List<ChannelMode> modes;
 
@@ -33,6 +36,7 @@ class ModeScaffold extends StatefulWidget {
   const ModeScaffold({
     super.key,
     required this.title,
+    this.subtitle,
     required this.midi,
     required this.modes,
     this.persistenceKey,
@@ -207,7 +211,26 @@ class _ModeScaffoldState extends State<ModeScaffold> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Flexible(
-                    child: Text(widget.title, overflow: TextOverflow.ellipsis)),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(widget.title, overflow: TextOverflow.ellipsis),
+                      if (widget.subtitle != null &&
+                          widget.subtitle!.isNotEmpty)
+                        Text(
+                          widget.subtitle!,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
                 if (widget.modes.length >= 2) ...[
                   const SizedBox(width: 12),
                   _buildModeSelector(),
