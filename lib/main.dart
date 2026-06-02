@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'about_page.dart';
@@ -55,13 +57,28 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final MidiService _midi = MidiService();
   List<MidiDeviceInfo> _devices = [];
   /// serial → ユーザー設定ニックネーム (未設定なら entry なし)。
   /// scanAndIdentify で identity 取得後にロードする。
   final Map<String, String> _nicknames = {};
   bool _scanning = false;
+
+  /// 自身の connect/disconnect で発火するため再 scan のトリガにしてはいけない
+  /// setup イベント名 (これらが返ってきたら無視し、それ以外は全部再 scan する)。
+  /// iOS/macOS の USB 挿抜は friendly な "deviceAppeared" ではなく CoreMIDI の
+  /// 生 messageID 文字列 (例: "msgObjectAdded") が流れるため、ホワイトリストではなく
+  /// ブラックリストで判定する。
+  static const Set<String> _ignoredSetupEvents = {
+    'deviceConnected',
+    'deviceDisconnected',
+  };
+
+  StreamSubscription<String>? _midiSetupSub;
+  /// MIDI setup イベントは USB 列挙で in/out 等が連続して飛んでくることがあるので
+  /// 短く debounce してから 1 回だけ再 scan する。
+  Timer? _autoRescanDebounce;
 
   @override
   void initState() {
@@ -72,14 +89,46 @@ class _HomePageState extends State<HomePage> {
     _midi.onDisconnect = () {
       if (mounted) setState(() {});
     };
+    // アプリが BG→FG 復帰したときの自動再スキャンを購読する。
+    WidgetsBinding.instance.addObserver(this);
+    // USB 挿抜などで MIDI 構成が変わったらイベント駆動で再 scan する。
+    _midiSetupSub = _midi.onMidiSetupChanged?.listen(_onMidiSetupChanged);
     // 起動時に自動スキャン
     Future.microtask(_scanAndIdentify);
   }
 
   @override
   void dispose() {
+    _autoRescanDebounce?.cancel();
+    _midiSetupSub?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     _midi.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    _maybeAutoRescan();
+  }
+
+  void _onMidiSetupChanged(String event) {
+    if (_ignoredSetupEvents.contains(event)) return;
+    _autoRescanDebounce?.cancel();
+    _autoRescanDebounce =
+        Timer(const Duration(milliseconds: 400), _maybeAutoRescan);
+  }
+
+  /// 自動再 scan の発火条件を満たすかチェックして scanAndIdentify を呼ぶ。
+  /// - HomePage が最上層の route であること (操作画面に居る間は MIDI 接続を
+  ///   壊さないよう何もしない)
+  /// - 既に scan 中でないこと
+  void _maybeAutoRescan() {
+    if (!mounted) return;
+    final route = ModalRoute.of(context);
+    if (route?.isCurrent != true) return;
+    if (_scanning) return;
+    _scanAndIdentify();
   }
 
   Future<void> _scanAndIdentify() async {
@@ -284,6 +333,7 @@ class _HomePageState extends State<HomePage> {
         channel: ch.midiChannel,
         mouseChannel: mouseCh?.midiChannel,
         deviceName: deviceName,
+        serial: device.identity?.serial,
       );
     }
 

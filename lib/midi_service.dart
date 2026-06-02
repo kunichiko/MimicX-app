@@ -92,6 +92,12 @@ class MidiService {
     RegExp(r'Microsoft GS Wavetable', caseSensitive: false),
   ];
 
+  /// MIDI セットアップ変化通知ストリーム。
+  /// "deviceAppeared" (USB が新規認識された) / "deviceConnected" / "deviceDisconnected"
+  /// / "deviceFound" (BLE 発見) / "deviceLost" (BLE 消失) などの文字列が流れる。
+  /// HomePage が自動再 scan のトリガに使う。
+  Stream<String>? get onMidiSetupChanged => _midiCommand.onMidiSetupChanged;
+
   Future<List<MidiDeviceInfo>> scanDevices() async {
     final devices = await _midiCommand.devices ?? [];
     return devices

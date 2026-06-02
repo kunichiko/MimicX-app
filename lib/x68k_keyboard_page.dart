@@ -37,12 +37,18 @@ class X68kKeyboardPage extends StatefulWidget {
   /// null/空ならサブタイトル非表示。
   final String? deviceName;
 
+  /// アダプタ個体のシリアル (Chip UID 由来 16 桁 hex)。
+  /// テンキー / トラックパッドの表示トグルをこの serial をキーに永続化する。
+  /// null/空なら永続化なし (in-memory only)。
+  final String? serial;
+
   const X68kKeyboardPage({
     super.key,
     required this.midi,
     this.channel = MidiService.chKeyboardDefault,
     this.mouseChannel,
     this.deviceName,
+    this.serial,
   });
 
   @override
@@ -69,6 +75,7 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
         channel: widget.channel,
         mouseChannel: widget.mouseChannel,
         shared: _shared,
+        serial: widget.serial,
       ),
       LineInputMode(channel: widget.channel, shared: _shared),
       TvRemoteMode(),
@@ -147,6 +154,10 @@ class StandardX68kMode extends ChannelMode {
   final int? mouseChannel;
   final X68kKeyboardSharedState shared;
 
+  /// テンキー / トラックパッド表示の永続化キー prefix にするアダプタ個体の serial。
+  /// null/空なら永続化しない (in-memory のみ)。
+  final String? serial;
+
   bool _numpadVisible = true;
   bool _trackpadVisible = true;
 
@@ -159,7 +170,45 @@ class StandardX68kMode extends ChannelMode {
     required this.channel,
     this.mouseChannel,
     required this.shared,
-  });
+    this.serial,
+  }) {
+    // serial が分かれば、保存済みの表示設定を非同期で読み込む。
+    // 読み込み完了後に notifyListeners() で本体を再描画させる。
+    _loadVisibility();
+  }
+
+  // ---------------------------------------------------------------------------
+  // テンキー / トラックパッド表示状態のシリアル別永続化
+  // ---------------------------------------------------------------------------
+  String get _kNumpadVisible => 'x68k_keyboard.$serial.numpadVisible';
+  String get _kTrackpadVisible => 'x68k_keyboard.$serial.trackpadVisible';
+
+  Future<void> _loadVisibility() async {
+    final s = serial;
+    if (s == null || s.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final n = prefs.getBool(_kNumpadVisible);
+      final t = prefs.getBool(_kTrackpadVisible);
+      if (n != null) _numpadVisible = n;
+      if (t != null) _trackpadVisible = t;
+      if (n != null || t != null) notifyListeners();
+    } catch (_) {
+      // 読み込み失敗は初期値のままで続行
+    }
+  }
+
+  Future<void> _persistVisibility() async {
+    final s = serial;
+    if (s == null || s.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_kNumpadVisible, _numpadVisible);
+      await prefs.setBool(_kTrackpadVisible, _trackpadVisible);
+    } catch (_) {
+      // 保存失敗は無視 (致命的ではない)
+    }
+  }
 
   @override
   String get id => 'x68k_keyboard.standard';
@@ -177,11 +226,13 @@ class StandardX68kMode extends ChannelMode {
   void _toggleNumpad() {
     _numpadVisible = !_numpadVisible;
     notifyListeners();
+    _persistVisibility();
   }
 
   void _toggleTrackpad() {
     _trackpadVisible = !_trackpadVisible;
     notifyListeners();
+    _persistVisibility();
   }
 
   @override
@@ -409,6 +460,14 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
     0x70, 0x71, 0x72, 0x73,
   };
 
+  // 英字キー (A-Z) のスキャンコード集合。CAPS LED と SHIFT 押下の XOR で
+  // キートップの大文字 / 小文字を切り替えるために使う。
+  static const Set<int> _letterScancodes = {
+    0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, // Q-P
+    0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26,       // A-L
+    0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30,                   // Z-M
+  };
+
   // ===========================================================================
   // SHIFT/OPT.2 + キーによる TV リモコン発射
   // ===========================================================================
@@ -490,6 +549,9 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
 
   // 押下ポップアップの表示制御。短いタップでも一定時間は表示しておく
   static const Duration _popupMinShow = Duration(milliseconds: 250);
+  // 押しっぱなしでも一定時間で自動消去する。吹き出しが隣接キーを覆い続けて
+  // 同時押しの邪魔になるのを避けるため。
+  static const Duration _popupAutoHide = Duration(milliseconds: 500);
   // 連打時に「一旦消えて再表示」して視覚的にカウントできるようにするための短い間
   static const Duration _popupBlinkGap = Duration(milliseconds: 30);
   final Map<int, Timer> _popupHideTimers = {};
@@ -795,10 +857,18 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
     _hideAllPopupOverlays();
     setState(() {});
 
-    // ごく短い間ブランクにしてから今回の押下キーを表示
+    // ごく短い間ブランクにしてから今回の押下キーを表示。表示後は _popupAutoHide
+    // 経過で自動的に消す (押しっぱなしでも消える)。release ハンドラ側がより早い
+    // hide タイマーに差し替えるケースもある。
     _popupShowTimer = Timer(_popupBlinkGap, () {
       if (!mounted) return;
       _showPopupOverlay(code, keyCtx, labels);
+      _popupHideTimers.remove(code)?.cancel();
+      _popupHideTimers[code] = Timer(_popupAutoHide, () {
+        if (!mounted) return;
+        _popupOverlays.remove(code)?.remove();
+        _popupHideTimers.remove(code);
+      });
     });
   }
 
@@ -1330,6 +1400,7 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
     //   かな ON + ひらがな ON  → ひらがな
     //   かな ON + ひらがな OFF → カタカナ
     //   かな OFF + SHIFT       → JIS 記号 (1-0 段、,./)
+    //   かな OFF + 英字キー    → CAPS LED (0x5D) XOR SHIFT で大文字/小文字を切替
     //   それ以外               → 通常の英数記号
     final kanaActive = widget.shared.isLedOn(0x5A);
     final hiraganaActive = widget.shared.isLedOn(0x5F);
@@ -1341,6 +1412,16 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
           : _katakanaLabels[scancode];
     } else if (shiftPressed) {
       overrideLabel = _shiftLabels[scancode];
+    }
+    // 英字キーは元ラベル ('A', 'Q' 等) が大文字なので、小文字状態のときだけ
+    // 変換する。CAPS と SHIFT のどちらか片方だけ ON なら大文字、両方 OFF または
+    // 両方 ON なら小文字 (典型的な CAPS LOCK の挙動と一致)。
+    if (overrideLabel == null && !kanaActive && _letterScancodes.contains(scancode)) {
+      final capsOn = widget.shared.isLedOn(0x5D);
+      final isUpper = capsOn ^ shiftPressed;
+      if (!isUpper) {
+        overrideLabel = labels.first.toLowerCase();
+      }
     }
     final displayLabels =
         overrideLabel != null ? <String>[overrideLabel] : labels;
