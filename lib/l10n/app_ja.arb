@@ -44,6 +44,16 @@
 
   "x68kKeyboardTitle": "X68000 Keyboard",
 
+  "deviceRenameTooltip": "名前を変更",
+  "deviceRenameTitle": "アダプタの名前を変更",
+  "deviceRenameHint": "ニックネーム (最大 50 文字)",
+  "deviceRenameSerialLabel": "シリアル: {serial}",
+  "deviceRenameSaveButton": "保存",
+  "deviceRenameClearButton": "規定値に戻す",
+  "deviceRenameConnecting": "接続中…",
+  "deviceRenameConnectFailed": "名前変更のための接続に失敗しました。",
+  "connectionLost": "デバイスとの通信が途絶えました。再スキャンします。",
+
   "aboutTitle": "このアプリについて",
   "aboutAppDescription": "Mimic X デバイスを介して、スマートフォンをレトロ PC (X68000 / MSX等) のジョイスティックやキーボードとして使うための USB-MIDI コントローラアプリです。",
   "aboutVersion": "バージョン {version} ({build})",

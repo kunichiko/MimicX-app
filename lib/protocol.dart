@@ -1,7 +1,7 @@
 // ===================================================================================
 // Mimic X プロトコル定数とパーサ
 // ===================================================================================
-// プロトコル仕様: MimicX-protocol v0.5.0
+// プロトコル仕様: MimicX-protocol v0.7.0
 // ===================================================================================
 
 /// このアプリがサポートするプロトコルのバージョン範囲。
@@ -14,13 +14,15 @@
 /// 通常は両者を同じ値にしておく。アプリ更新で新プロトコル対応した場合のみ
 /// knownLatest を引き上げる。
 class MinSupportedProtocol {
-  // 最低サポートバージョン
+  // 最低サポートバージョン。0.7 でアダプタの Chip UID シリアルが IDENTIFY_RSP に
+  // 含まれるようになり、ニックネーム永続化や LED 制御 (SET_LED / SET_LED_BLINK)
+  // のためにこのアプリは 0.7 以降必須とする。
   static const int minMajor = 0;
-  static const int minMinor = 5;
+  static const int minMinor = 7;
 
   // アプリが知っている最新プロトコルバージョン
   static const int knownLatestMajor = 0;
-  static const int knownLatestMinor = 6;
+  static const int knownLatestMinor = 7;
 
   // 旧 API 互換用 (minor が同じなら同一)
   static const int major = minMajor;
@@ -167,6 +169,10 @@ class DeviceIdentity {
   final int firmwareMinor;
   final int firmwarePatch;
   final List<ChannelAssignment> channels;
+  /// アダプタ個体のシリアル (Chip UID 64bit を 16 文字 ASCII hex 大文字で表現)。
+  /// プロトコル 0.7 未満では IDENTIFY_RSP に存在しないので空文字を入れる。
+  /// アプリ自身は 0.7 を minMinor として要求するため通常は 16 文字保証される。
+  final String serial;
   final String deviceName;
 
   DeviceIdentity({
@@ -176,6 +182,7 @@ class DeviceIdentity {
     required this.firmwareMinor,
     required this.firmwarePatch,
     required this.channels,
+    required this.serial,
     required this.deviceName,
   });
 
@@ -184,14 +191,20 @@ class DeviceIdentity {
 
   /// IDENTIFY_RESPONSE を SysEx 全体 (F0..F7) からパース
   ///
-  /// レイアウト:
+  /// レイアウト (proto 0.7+):
+  /// ```
   ///   F0 7D 01 02
   ///     <protocol_major> <protocol_minor>
   ///     <fw_major> <fw_minor> <fw_patch>
   ///     <num_channels>
   ///     <ch> <type> <target>  ... (num_channels 個)
+  ///     <serial[16] ASCII hex>
   ///     <name ASCII...>
   ///   F7
+  /// ```
+  ///
+  /// proto 0.6 以下は serial[16] が無く name が直接続く。古いファームは
+  /// MinSupportedProtocol で接続拒否するが、安全のため後方互換パースも残す。
   static DeviceIdentity? parse(List<int> sysex) {
     if (sysex.length < 11) return null;
     if (sysex.first != 0xF0 || sysex.last != 0xF7) return null;
@@ -215,6 +228,15 @@ class DeviceIdentity {
       ));
     }
 
+    // serial[16]: proto 0.7+ のみ存在。それ以前は空文字を入れて旧 layout として扱う。
+    String serial = '';
+    final hasSerial = (protoMaj > 0 || (protoMaj == 0 && protoMin >= 7)) &&
+        (p + 16 <= sysex.length - 1);
+    if (hasSerial) {
+      serial = String.fromCharCodes(sysex.sublist(p, p + 16));
+      p += 16;
+    }
+
     final nameBytes = sysex.sublist(p, sysex.length - 1);
     final name = String.fromCharCodes(nameBytes);
 
@@ -225,9 +247,18 @@ class DeviceIdentity {
       firmwareMinor: fwMin,
       firmwarePatch: fwPatch,
       channels: channels,
+      serial: serial,
       deviceName: name,
     );
   }
+}
+
+/// ステータス LED (PB0 WS2812B) の点滅速度 (プロトコル仕様 6.9)
+class LedBlinkSpeed {
+  static const int none = 0x00;  // 点滅しない (常時点灯)
+  static const int slow = 0x01;  // 1 Hz
+  static const int mid  = 0x02;  // 2 Hz
+  static const int high = 0x03;  // 4 Hz
 }
 
 /// SysEx コマンドビルダ
@@ -241,9 +272,13 @@ class SysExBuilder {
   static const int cmdTargetRx = 0x05;   // デバイス→ホスト: ターゲット機からの受信バイト
   static const int cmdAck = 0x06;        // デバイス→ホスト: 専用レスポンス無しコマンドの ACK
   static const int cmdEmitRemote = 0x07; // ホスト→デバイス: REMOTE 端子からリモコンコード発射
+  static const int cmdHeartBeat = 0x08;  // ホスト→デバイス: 接続生存通知 (1 秒間隔)
+  static const int cmdDisconnect = 0x09; // ホスト→デバイス: 選択終了。即座に SCANNED 復帰
   static const int cmdSetConfig = 0x10;
   static const int cmdGetConfig = 0x11;
   static const int cmdConfigRsp = 0x12;
+  static const int cmdSetLed = 0x20;      // ホスト→デバイス: PB0 LED の色を設定
+  static const int cmdSetLedBlink = 0x21; // ホスト→デバイス: PB0 LED の点滅速度を設定
   static const int cmdReset = 0x7F;
 
   /// IDENTIFY はブートストラップのため req_id を持たない (プロトコル 6.3)
@@ -266,6 +301,29 @@ class SysExBuilder {
   /// リモコンコードを送出させる。code は 0x01-0x1F。
   static List<int> emitRemote(int reqId, int code) =>
       [0xF0, mfrId, subId, cmdEmitRemote, reqId & 0x7F, code & 0x7F, 0xF7];
+
+  /// HEART_BEAT (0x08): 接続生存通知。デバイス側は ACK を返しつつ
+  /// 内部状態を CONNECTED に保持する。
+  static List<int> heartBeat(int reqId) =>
+      [0xF0, mfrId, subId, cmdHeartBeat, reqId & 0x7F, 0xF7];
+
+  /// DISCONNECT (0x09): 選択終了。デバイス側は ACK を返しつつ即座に
+  /// SCANNED (緑) に戻り override をクリアする。
+  static List<int> disconnect(int reqId) =>
+      [0xF0, mfrId, subId, cmdDisconnect, reqId & 0x7F, 0xF7];
+
+  /// SET_LED (0x20): PB0 ステータス LED の色を設定。R/G/B は 0-127 (7bit)。
+  /// デバイス側で `(v<<1)|(v>>6)` により 8bit (0-255) に拡張される。
+  static List<int> setLed(int reqId, int r, int g, int b) => [
+        0xF0, mfrId, subId, cmdSetLed,
+        reqId & 0x7F, r & 0x7F, g & 0x7F, b & 0x7F, 0xF7,
+      ];
+
+  /// SET_LED_BLINK (0x21): PB0 ステータス LED の点滅速度を設定 (色は変えない)。
+  /// [speed] は [LedBlinkSpeed] 定数。
+  static List<int> setLedBlink(int reqId, int speed) => [
+        0xF0, mfrId, subId, cmdSetLedBlink, reqId & 0x7F, speed & 0x7F, 0xF7,
+      ];
 }
 
 /// 0x00〜0x7F を巡回する request ID アロケータ。

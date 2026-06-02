@@ -132,6 +132,35 @@ class AppLocalizationsJa extends AppLocalizations {
   String get x68kKeyboardTitle => 'X68000 Keyboard';
 
   @override
+  String get deviceRenameTooltip => '名前を変更';
+
+  @override
+  String get deviceRenameTitle => 'アダプタの名前を変更';
+
+  @override
+  String get deviceRenameHint => 'ニックネーム (最大 50 文字)';
+
+  @override
+  String deviceRenameSerialLabel(String serial) {
+    return 'シリアル: $serial';
+  }
+
+  @override
+  String get deviceRenameSaveButton => '保存';
+
+  @override
+  String get deviceRenameClearButton => '規定値に戻す';
+
+  @override
+  String get deviceRenameConnecting => '接続中…';
+
+  @override
+  String get deviceRenameConnectFailed => '名前変更のための接続に失敗しました。';
+
+  @override
+  String get connectionLost => 'デバイスとの通信が途絶えました。再スキャンします。';
+
+  @override
   String get aboutTitle => 'このアプリについて';
 
   @override

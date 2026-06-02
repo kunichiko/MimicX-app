@@ -91,6 +91,19 @@
 
   "x68kKeyboardTitle": "X68000 Keyboard",
 
+  "deviceRenameTooltip": "Rename",
+  "deviceRenameTitle": "Rename adapter",
+  "deviceRenameHint": "Nickname (up to 50 characters)",
+  "deviceRenameSerialLabel": "Serial: {serial}",
+  "@deviceRenameSerialLabel": {
+    "placeholders": { "serial": { "type": "String" } }
+  },
+  "deviceRenameSaveButton": "Save",
+  "deviceRenameClearButton": "Reset to default",
+  "deviceRenameConnecting": "Connecting…",
+  "deviceRenameConnectFailed": "Could not connect to the adapter for renaming.",
+  "connectionLost": "Lost connection to the device. Rescanning…",
+
   "aboutTitle": "About",
   "aboutAppDescription": "USB-MIDI controller app for retro PC HID emulation. Use a smartphone as a joystick or keyboard for X68000 / MSX via the Mimic X device.",
   "aboutVersion": "Version {version} ({build})",

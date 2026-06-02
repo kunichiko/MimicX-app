@@ -44,6 +44,20 @@ class MidiService {
   /// API 呼び出しのデフォルトタイムアウト (プロトコル仕様 6.1.4 に準拠)
   static const Duration defaultAckTimeout = Duration(milliseconds: 100);
 
+  // --- Heart Beat (1 秒間隔の接続生存通知) -----------------------------------
+  // 操作画面 (joystick/x68k_keyboard/rename) に入ったら startHeartBeat() を呼び、
+  // 1 秒ごとに CMD_HEART_BEAT を送って ACK を待つ。3 連続失敗 (= ~3 秒) で
+  // onFailure callback を呼び、呼出側が「接続失敗」処理 (画面 pop + 再 scan) を行う。
+  // 操作画面を出るときに stopHeartBeat() を呼ぶ。
+  Timer? _heartBeatTimer;
+  int _heartBeatConsecutiveFails = 0;
+  VoidCallback? _onHeartBeatFailure;
+  static const Duration heartBeatInterval = Duration(seconds: 1);
+  /// HB ACK の許容遅延。1 秒間隔より短くしないと「次の HB が走り始めてから前の HB の
+  /// timeout を見る」というラグでフェイルカウントが想定外に伸びる。
+  static const Duration heartBeatTimeout = Duration(milliseconds: 900);
+  static const int heartBeatMaxConsecutiveFails = 3;
+
   // ジョイスティック Note 番号 (D-SUB 9pin 対応)
   static const int chJoystickDefault = 0;
   static const int chKeyboardDefault = 1;
@@ -249,6 +263,9 @@ class MidiService {
   void disconnect() {
     _rxSubscription?.cancel();
     _rxSubscription = null;
+    // 接続が切れる以上 HB は無意味。callback 呼出も避けたいので _onHeartBeatFailure
+    // も nil 化 (stopHeartBeat 経由)。
+    stopHeartBeat();
     // 待機中の ACK Completer をすべて解決して呼び出し側を unblock する
     for (final c in _pendingAcks.values) {
       if (!c.isCompleted) {
@@ -270,6 +287,9 @@ class MidiService {
   // ---------------------------------------------------------------------------
   // 送信ヘルパー
   // ---------------------------------------------------------------------------
+
+  // sendNote/CC は HID 経由でアダプタへ送る。アダプタは CONNECTED 状態なら
+  // 自動で activity 点滅 (青 High) するのでアプリ側からは何もしない。
 
   void sendNoteOn(int channel, int note, int velocity) {
     final data = Uint8List.fromList([0x90 | (channel & 0x0F), note & 0x7F, velocity & 0x7F]);
@@ -311,6 +331,87 @@ class MidiService {
   void emitRemote(int code) {
     final reqId = _reqIdAllocator.allocate();
     sendSysEx(SysExBuilder.emitRemote(reqId, code));
+  }
+
+  /// ステータス LED の色を override 設定。R/G/B は 0-255。
+  /// fire-and-forget。RGB=(255,255,255) はファーム側で override reset として扱われる。
+  ///
+  /// 注: 7bit → 8bit ファーム側展開は `(v<<1)|(v>>6)` なので 7bit `0x7F` は 255 にマップ。
+  /// 最大輝度の白を出したいときは 254 を渡す ([resetLedOverride] と区別するため)。
+  void setLedColor(int r, int g, int b) {
+    final reqId = _reqIdAllocator.allocate();
+    final r7 = (r >> 1) & 0x7F;
+    final g7 = (g >> 1) & 0x7F;
+    final b7 = (b >> 1) & 0x7F;
+    sendSysEx(SysExBuilder.setLed(reqId, r7, g7, b7));
+  }
+
+  /// LED override をクリアする。ファームは状態色 (黄/緑/青) に戻し点滅もクリアする。
+  void resetLedOverride() {
+    final reqId = _reqIdAllocator.allocate();
+    // (127, 127, 127) → ファーム側で (255, 255, 255) に展開 → reset sentinel
+    sendSysEx(SysExBuilder.setLed(reqId, 0x7F, 0x7F, 0x7F));
+  }
+
+  /// ステータス LED の点滅速度 override を設定。speed は [LedBlinkSpeed] 定数。
+  /// 色 override が掛かっていないときは値だけ保持される (ファーム側仕様)。
+  void setLedBlink(int speed) {
+    final reqId = _reqIdAllocator.allocate();
+    sendSysEx(SysExBuilder.setLedBlink(reqId, speed));
+  }
+
+  // --- Heart Beat ----------------------------------------------------------
+
+  /// HEART_BEAT を 1 秒間隔で送信開始する。3 回連続で ACK が返らなかった
+  /// (= 約 3 秒間応答なし) 場合は [onFailure] が呼ばれる。
+  ///
+  /// 多重起動 (前のタイマーが残ったまま) は前タイマーを止めてから上書きする。
+  /// 接続中の操作画面 / rename 画面に入るタイミングで呼ぶ。
+  void startHeartBeat({required VoidCallback onFailure}) {
+    _heartBeatTimer?.cancel();
+    _heartBeatConsecutiveFails = 0;
+    _onHeartBeatFailure = onFailure;
+    _heartBeatTimer = Timer.periodic(heartBeatInterval, (_) => _tickHeartBeat());
+  }
+
+  /// HEART_BEAT 送信を停止する。画面を抜けるときに呼ぶ。
+  void stopHeartBeat() {
+    _heartBeatTimer?.cancel();
+    _heartBeatTimer = null;
+    _heartBeatConsecutiveFails = 0;
+    _onHeartBeatFailure = null;
+  }
+
+  /// DISCONNECT (0x09) を送信して fire-and-forget。
+  /// アダプタは即座に SCANNED に戻り override をクリアする。
+  void sendDisconnect() {
+    final reqId = _reqIdAllocator.allocate();
+    sendSysEx(SysExBuilder.disconnect(reqId));
+  }
+
+  Future<void> _tickHeartBeat() async {
+    // タイマー側からの async tick: 走行中にユーザーが画面を抜けたら timer は
+    // cancel されているはずだが、in-flight な ACK 待ちが残ることがあるので
+    // 多重実行に強い書き方にしておく。
+    if (_heartBeatTimer == null) return;
+    final reqId = _reqIdAllocator.allocate();
+    final result = await _sendAndWait(
+      reqId: reqId,
+      sysex: SysExBuilder.heartBeat(reqId),
+      timeout: heartBeatTimeout,
+    );
+    if (_heartBeatTimer == null) return;  // tick 完了前に stop された
+    if (result.isOk) {
+      _heartBeatConsecutiveFails = 0;
+      return;
+    }
+    _heartBeatConsecutiveFails++;
+    if (_heartBeatConsecutiveFails >= heartBeatMaxConsecutiveFails) {
+      // 失敗 callback を呼ぶ前に必ず timer を止めて多重通知を防ぐ。
+      final cb = _onHeartBeatFailure;
+      stopHeartBeat();
+      cb?.call();
+    }
   }
 
   // 任意 channel への送信ヘルパー (互換)

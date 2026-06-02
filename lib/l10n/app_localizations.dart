@@ -302,6 +302,60 @@ abstract class AppLocalizations {
   /// **'X68000 Keyboard'**
   String get x68kKeyboardTitle;
 
+  /// No description provided for @deviceRenameTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename'**
+  String get deviceRenameTooltip;
+
+  /// No description provided for @deviceRenameTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename adapter'**
+  String get deviceRenameTitle;
+
+  /// No description provided for @deviceRenameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Nickname (up to 50 characters)'**
+  String get deviceRenameHint;
+
+  /// No description provided for @deviceRenameSerialLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Serial: {serial}'**
+  String deviceRenameSerialLabel(String serial);
+
+  /// No description provided for @deviceRenameSaveButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get deviceRenameSaveButton;
+
+  /// No description provided for @deviceRenameClearButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset to default'**
+  String get deviceRenameClearButton;
+
+  /// No description provided for @deviceRenameConnecting.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting…'**
+  String get deviceRenameConnecting;
+
+  /// No description provided for @deviceRenameConnectFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not connect to the adapter for renaming.'**
+  String get deviceRenameConnectFailed;
+
+  /// No description provided for @connectionLost.
+  ///
+  /// In en, this message translates to:
+  /// **'Lost connection to the device. Rescanning…'**
+  String get connectionLost;
+
   /// No description provided for @aboutTitle.
   ///
   /// In en, this message translates to:

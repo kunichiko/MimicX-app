@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'about_page.dart';
+import 'device_nickname_store.dart';
+import 'device_rename_page.dart';
 import 'l10n/app_localizations.dart';
 import 'midi_service.dart';
 import 'protocol.dart';
@@ -56,6 +58,9 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final MidiService _midi = MidiService();
   List<MidiDeviceInfo> _devices = [];
+  /// serial → ユーザー設定ニックネーム (未設定なら entry なし)。
+  /// scanAndIdentify で identity 取得後にロードする。
+  final Map<String, String> _nicknames = {};
   bool _scanning = false;
 
   @override
@@ -98,12 +103,66 @@ class _HomePageState extends State<HomePage> {
       _midi.disconnect();
     }
 
+    // serial 単位のニックネームを SharedPreferences からロード
+    _nicknames.clear();
+    for (final dev in devices) {
+      final serial = dev.identity?.serial ?? '';
+      if (serial.isEmpty) continue;
+      final nick = await DeviceNicknameStore.get(serial);
+      if (nick != null) _nicknames[serial] = nick;
+    }
+
     if (mounted) {
       setState(() {
         _devices = devices;
         _scanning = false;
       });
     }
+  }
+
+  /// ニックネームがあればそれ、無ければ USB の iManufacturer + iProduct 名。
+  String _displayNameFor(MidiDeviceInfo dev) {
+    final serial = dev.identity?.serial ?? '';
+    final nick = _nicknames[serial];
+    if (nick != null && nick.isNotEmpty) return nick;
+    return dev.name;
+  }
+
+  Future<void> _openRename(MidiDeviceInfo dev) async {
+    final serial = dev.identity?.serial ?? '';
+    if (serial.isEmpty) return;
+    final current = _nicknames[serial] ?? '';
+    // 画面を開く前に scan 用接続が残っていないこと (= disconnect 済み) を期待する。
+    // rename 画面側で connect する。
+    final result = await Navigator.of(context).push<String?>(
+      MaterialPageRoute(
+        builder: (_) => DeviceRenamePage(
+          deviceInfo: dev,
+          initialNickname: current,
+          midi: _midi,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    // 'CONN_LOST' は HB 失敗で自動 pop されたケース。再 scan を促す。
+    if (result == 'CONN_LOST') {
+      final l = AppLocalizations.of(context)!;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.connectionLost)),
+      );
+      setState(() => _devices = []);
+      await _scanAndIdentify();
+      return;
+    }
+    // result は保存された文字列。null は ESC 等で破棄された場合。
+    if (result == null) return;
+    setState(() {
+      if (result.isEmpty) {
+        _nicknames.remove(serial);
+      } else {
+        _nicknames[serial] = result;
+      }
+    });
   }
 
   Future<void> _openDevice(MidiDeviceInfo device) async {
@@ -231,10 +290,26 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => page!));
-    // 戻ってきたら切断 + 回転ロック解除 (ホーム画面は OS の自動回転に追従)
+    // 操作画面は HB 失敗時に 'CONN_LOST' を pop result で返す。
+    final popResult =
+        await Navigator.of(context).push<String?>(MaterialPageRoute(builder: (_) => page!));
+    // Navigator.pop の Future はページ dispose より早く解決されるので、page 内で
+    // sendDisconnect しても USB が先に閉じてしまう (= デバイスに届かない)。
+    // ここで明示的に「HB 停止 → DISCONNECT 送信 → TX フラッシュ → USB close」する。
+    _midi.stopHeartBeat();
+    _midi.sendDisconnect();
+    await Future.delayed(const Duration(milliseconds: 100));
     _midi.disconnect();
     OrientationHelper.unlock();
+    if (popResult == 'CONN_LOST' && mounted) {
+      final l = AppLocalizations.of(context)!;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.connectionLost)),
+      );
+      // 一覧をクリアして再 scan
+      setState(() => _devices = []);
+      await _scanAndIdentify();
+    }
   }
 
   void _showChannelPicker(
@@ -337,6 +412,7 @@ class _HomePageState extends State<HomePage> {
                 final device = _devices[index];
                 final identity = device.identity;
                 final isMimicX = identity != null;
+                final hasSerial = (identity?.serial.isNotEmpty ?? false);
                 return Card(
                   margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   child: InkWell(
@@ -356,7 +432,9 @@ class _HomePageState extends State<HomePage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  device.name,
+                                  _displayNameFor(device),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                                 ),
                                 if (identity != null) ...[
@@ -394,6 +472,12 @@ class _HomePageState extends State<HomePage> {
                               ],
                             ),
                           ),
+                          if (hasSerial)
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined),
+                              tooltip: l.deviceRenameTooltip,
+                              onPressed: () => _openRename(device),
+                            ),
                           if (isMimicX) const Icon(Icons.chevron_right),
                         ],
                       ),

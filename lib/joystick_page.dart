@@ -45,10 +45,22 @@ class _JoystickPageState extends State<JoystickPage> {
       LibbleRabbleMode(channel: widget.channel),
       MsxMouseMode(channel: widget.channel),
     ];
+    // 操作画面に入っている間は HB を送り続ける。3 秒応答が無ければ "CONN_LOST"
+    // を結果にして自動 pop。HomePage 側で再 scan される。
+    widget.midi.startHeartBeat(onFailure: _onHeartBeatFailure);
+  }
+
+  void _onHeartBeatFailure() {
+    if (!mounted) return;
+    Navigator.of(context).pop('CONN_LOST');
   }
 
   @override
   void dispose() {
+    // HB だけ早めに止めておく。DISCONNECT 送信 + USB close は親 (main.dart)
+    // が Navigator.push の await 後にまとめて行う (dispose 順が USB close より
+    // 遅れて DISCONNECT が届かなくなるのを避けるため)。
+    widget.midi.stopHeartBeat();
     for (final m in _modes) {
       m.dispose();
     }

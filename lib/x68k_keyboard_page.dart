@@ -77,6 +77,14 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
     // で状態遷移がズレる恐れがあるため、INS (他と排他関係を持たない) を
     // 2 回押して 1 回目で全 LED 状態を読み取り、2 回目で INS を元に戻す。
     Future.delayed(const Duration(milliseconds: 500), _syncLedState);
+    // 操作画面に入っている間は HB を送り続ける。3 秒応答が無ければ "CONN_LOST"
+    // を結果にして自動 pop。HomePage 側で再 scan される。
+    widget.midi.startHeartBeat(onFailure: _onHeartBeatFailure);
+  }
+
+  void _onHeartBeatFailure() {
+    if (!mounted) return;
+    Navigator.of(context).pop('CONN_LOST');
   }
 
   void _onTargetRx(int midiChannel, int byte) {
@@ -98,6 +106,9 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
 
   @override
   void dispose() {
+    // HB だけ早めに止めておく (joystick_page と同じ理由)。DISCONNECT 送信 +
+    // USB close は親 (main.dart) が Navigator.push の await 後にまとめて行う。
+    widget.midi.stopHeartBeat();
     if (widget.midi.onTargetRx == _onTargetRx) {
       widget.midi.onTargetRx = null;
     }
