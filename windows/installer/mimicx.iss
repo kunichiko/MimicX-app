@@ -31,6 +31,15 @@
   #define MyAppVersion "0.0.0"
 #endif
 
+; VersionInfoVersion は X.X.X.X 形式の純粋な数値しか受け付けないので、
+; pre-release suffix (例: "1.3.3-rc1") があれば落として "1.3.3" にする。
+; AppVersion / OutputBaseFilename はハイフン入り文字列をそのまま使ってよい。
+#if Pos("-", MyAppVersion) > 0
+  #define MyAppVersionNumeric Copy(MyAppVersion, 1, Pos("-", MyAppVersion) - 1)
+#else
+  #define MyAppVersionNumeric MyAppVersion
+#endif
+
 [Setup]
 AppId={{EA867AE7-8788-4E06-84C4-9638CA862D06}
 AppName={#MyAppName}
@@ -40,7 +49,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-VersionInfoVersion={#MyAppVersion}
+VersionInfoVersion={#MyAppVersionNumeric}
 ; 管理者権限を要求せず Per-user / Per-machine をユーザーに選ばせる。
 ; admin の場合 {autopf} = Program Files、非 admin の場合 LocalAppData\Programs。
 PrivilegesRequired=lowest
