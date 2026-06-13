@@ -683,106 +683,108 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
   // 物理キーボード直接入力
   // ===========================================================================
   //
-  // LogicalKeyboardKey → X68000 スキャンコード のマッピング。
-  // 基本的に JIS 配列前提でレイアウトしてある (X68000 自体が JIS)。
-  // 記号系の一部は US 配列だと別の物理キー位置になるが、X68k のレイアウトを
-  // 真とする方針なので「ホストで打った文字 = X68k 側のキー」と捉えて欲しい。
-  static final Map<LogicalKeyboardKey, int> _physicalKeyMap = {
+  // PhysicalKeyboardKey → X68000 スキャンコード のマッピング。
+  // 物理位置 (USB HID usage) ベースなので、OS / 配列 (JIS/US) に依らず一意。
+  // X68000 自体が JIS 配列なので、JIS 物理キーボードを使えば刻印そのままで
+  // 打てる。US 物理キーボードの場合は「P の右」が `[` 刻印でも X68k では `@`
+  // になる、といった配置ズレが発生するが、これは PC キーボードモード (将来
+  // 実装予定) で文字基準マッピングを選ぶことで解消する想定。
+  //
+  // 履歴: logicalKey ベースだと OS ごとに JIS の解釈が異なり (macOS は文字
+  // 基準、Windows は VK code を US 配列で文字化) Windows で `:@^_` が
+  // 打てない / 別キーが発火する問題があった。physicalKey に統一して解決。
+  static final Map<PhysicalKeyboardKey, int> _physicalKeyMap = {
     // 文字キー
-    LogicalKeyboardKey.keyA: 0x1E, LogicalKeyboardKey.keyB: 0x2E,
-    LogicalKeyboardKey.keyC: 0x2C, LogicalKeyboardKey.keyD: 0x20,
-    LogicalKeyboardKey.keyE: 0x13, LogicalKeyboardKey.keyF: 0x21,
-    LogicalKeyboardKey.keyG: 0x22, LogicalKeyboardKey.keyH: 0x23,
-    LogicalKeyboardKey.keyI: 0x18, LogicalKeyboardKey.keyJ: 0x24,
-    LogicalKeyboardKey.keyK: 0x25, LogicalKeyboardKey.keyL: 0x26,
-    LogicalKeyboardKey.keyM: 0x30, LogicalKeyboardKey.keyN: 0x2F,
-    LogicalKeyboardKey.keyO: 0x19, LogicalKeyboardKey.keyP: 0x1A,
-    LogicalKeyboardKey.keyQ: 0x11, LogicalKeyboardKey.keyR: 0x14,
-    LogicalKeyboardKey.keyS: 0x1F, LogicalKeyboardKey.keyT: 0x15,
-    LogicalKeyboardKey.keyU: 0x17, LogicalKeyboardKey.keyV: 0x2D,
-    LogicalKeyboardKey.keyW: 0x12, LogicalKeyboardKey.keyX: 0x2B,
-    LogicalKeyboardKey.keyY: 0x16, LogicalKeyboardKey.keyZ: 0x2A,
+    PhysicalKeyboardKey.keyA: 0x1E, PhysicalKeyboardKey.keyB: 0x2E,
+    PhysicalKeyboardKey.keyC: 0x2C, PhysicalKeyboardKey.keyD: 0x20,
+    PhysicalKeyboardKey.keyE: 0x13, PhysicalKeyboardKey.keyF: 0x21,
+    PhysicalKeyboardKey.keyG: 0x22, PhysicalKeyboardKey.keyH: 0x23,
+    PhysicalKeyboardKey.keyI: 0x18, PhysicalKeyboardKey.keyJ: 0x24,
+    PhysicalKeyboardKey.keyK: 0x25, PhysicalKeyboardKey.keyL: 0x26,
+    PhysicalKeyboardKey.keyM: 0x30, PhysicalKeyboardKey.keyN: 0x2F,
+    PhysicalKeyboardKey.keyO: 0x19, PhysicalKeyboardKey.keyP: 0x1A,
+    PhysicalKeyboardKey.keyQ: 0x11, PhysicalKeyboardKey.keyR: 0x14,
+    PhysicalKeyboardKey.keyS: 0x1F, PhysicalKeyboardKey.keyT: 0x15,
+    PhysicalKeyboardKey.keyU: 0x17, PhysicalKeyboardKey.keyV: 0x2D,
+    PhysicalKeyboardKey.keyW: 0x12, PhysicalKeyboardKey.keyX: 0x2B,
+    PhysicalKeyboardKey.keyY: 0x16, PhysicalKeyboardKey.keyZ: 0x2A,
     // 数字キー
-    LogicalKeyboardKey.digit1: 0x02, LogicalKeyboardKey.digit2: 0x03,
-    LogicalKeyboardKey.digit3: 0x04, LogicalKeyboardKey.digit4: 0x05,
-    LogicalKeyboardKey.digit5: 0x06, LogicalKeyboardKey.digit6: 0x07,
-    LogicalKeyboardKey.digit7: 0x08, LogicalKeyboardKey.digit8: 0x09,
-    LogicalKeyboardKey.digit9: 0x0A, LogicalKeyboardKey.digit0: 0x0B,
+    PhysicalKeyboardKey.digit1: 0x02, PhysicalKeyboardKey.digit2: 0x03,
+    PhysicalKeyboardKey.digit3: 0x04, PhysicalKeyboardKey.digit4: 0x05,
+    PhysicalKeyboardKey.digit5: 0x06, PhysicalKeyboardKey.digit6: 0x07,
+    PhysicalKeyboardKey.digit7: 0x08, PhysicalKeyboardKey.digit8: 0x09,
+    PhysicalKeyboardKey.digit9: 0x0A, PhysicalKeyboardKey.digit0: 0x0B,
     // 制御キー
-    LogicalKeyboardKey.escape: 0x01,
-    LogicalKeyboardKey.backspace: 0x0F,
-    LogicalKeyboardKey.tab: 0x10,
-    LogicalKeyboardKey.enter: 0x1D,
-    LogicalKeyboardKey.space: 0x35,
+    PhysicalKeyboardKey.escape: 0x01,
+    PhysicalKeyboardKey.backspace: 0x0F,
+    PhysicalKeyboardKey.tab: 0x10,
+    PhysicalKeyboardKey.enter: 0x1D,
+    PhysicalKeyboardKey.space: 0x35,
     // 矢印
-    LogicalKeyboardKey.arrowUp: 0x3C,
-    LogicalKeyboardKey.arrowDown: 0x3E,
-    LogicalKeyboardKey.arrowLeft: 0x3B,
-    LogicalKeyboardKey.arrowRight: 0x3D,
+    PhysicalKeyboardKey.arrowUp: 0x3C,
+    PhysicalKeyboardKey.arrowDown: 0x3E,
+    PhysicalKeyboardKey.arrowLeft: 0x3B,
+    PhysicalKeyboardKey.arrowRight: 0x3D,
     // モディファイア (左右どちらも同じ X68k キーに割り当て)
-    LogicalKeyboardKey.shiftLeft: 0x70,
-    LogicalKeyboardKey.shiftRight: 0x70,
-    LogicalKeyboardKey.controlLeft: 0x71,
-    LogicalKeyboardKey.controlRight: 0x71,
-    LogicalKeyboardKey.altLeft: 0x72,  // OPT.1
-    LogicalKeyboardKey.altRight: 0x73, // OPT.2
+    PhysicalKeyboardKey.shiftLeft: 0x70,
+    PhysicalKeyboardKey.shiftRight: 0x70,
+    PhysicalKeyboardKey.controlLeft: 0x71,
+    PhysicalKeyboardKey.controlRight: 0x71,
+    PhysicalKeyboardKey.altLeft: 0x72,  // OPT.1
+    PhysicalKeyboardKey.altRight: 0x73, // OPT.2
     // ファンクションキー
-    LogicalKeyboardKey.f1: 0x63, LogicalKeyboardKey.f2: 0x64,
-    LogicalKeyboardKey.f3: 0x65, LogicalKeyboardKey.f4: 0x66,
-    LogicalKeyboardKey.f5: 0x67, LogicalKeyboardKey.f6: 0x68,
-    LogicalKeyboardKey.f7: 0x69, LogicalKeyboardKey.f8: 0x6A,
-    LogicalKeyboardKey.f9: 0x6B, LogicalKeyboardKey.f10: 0x6C,
+    PhysicalKeyboardKey.f1: 0x63, PhysicalKeyboardKey.f2: 0x64,
+    PhysicalKeyboardKey.f3: 0x65, PhysicalKeyboardKey.f4: 0x66,
+    PhysicalKeyboardKey.f5: 0x67, PhysicalKeyboardKey.f6: 0x68,
+    PhysicalKeyboardKey.f7: 0x69, PhysicalKeyboardKey.f8: 0x6A,
+    PhysicalKeyboardKey.f9: 0x6B, PhysicalKeyboardKey.f10: 0x6C,
     // 編集 / ナビゲーション
-    LogicalKeyboardKey.home: 0x36,
-    LogicalKeyboardKey.delete: 0x37,
-    LogicalKeyboardKey.insert: 0x5E,
-    LogicalKeyboardKey.pageUp: 0x38,    // ROLL UP
-    LogicalKeyboardKey.pageDown: 0x39,  // ROLL DOWN
-    LogicalKeyboardKey.capsLock: 0x5D,
-    // 記号 (US/JIS 共通)
-    LogicalKeyboardKey.minus: 0x0C,
-    LogicalKeyboardKey.comma: 0x31,
-    LogicalKeyboardKey.period: 0x32,
-    LogicalKeyboardKey.slash: 0x33,
-    LogicalKeyboardKey.semicolon: 0x27,
-    // 記号系の追加マッピング。LogicalKeyboardKey は USASCII 文字基準の命名なので、
-    // 「produced character = JIS のキー」と読めば素直に対応する。
-    // JIS 配列で専用キーがあるもの (caret / at / colon / yen / ro) と、US/JIS で
-    // 同一文字を出すブラケット記号、US 配列固有の backslash まで網羅する。
-    LogicalKeyboardKey.caret: 0x0D,         // ^
-    LogicalKeyboardKey.intlYen: 0x0E,       // ¥
-    LogicalKeyboardKey.at: 0x1B,            // @ (JIS 専用キー)
-    LogicalKeyboardKey.bracketLeft: 0x1C,   // [
-    LogicalKeyboardKey.colon: 0x28,         // : (JIS 専用キー)
-    LogicalKeyboardKey.bracketRight: 0x29,  // ]
-    LogicalKeyboardKey.intlRo: 0x34,        // _ (JIS 専用キーの素押し)
-    LogicalKeyboardKey.underscore: 0x34,    // _ (OS 側で shift 解決される場合)
-    LogicalKeyboardKey.backslash: 0x0E,     // \ (US 専用キー → JIS ¥ と等価)
-    // テンキー (numpad)。OS は NumLock 状態に依らず logical key を出す。
-    LogicalKeyboardKey.numpad0: 0x4F,
-    LogicalKeyboardKey.numpad1: 0x4B,
-    LogicalKeyboardKey.numpad2: 0x4C,
-    LogicalKeyboardKey.numpad3: 0x4D,
-    LogicalKeyboardKey.numpad4: 0x47,
-    LogicalKeyboardKey.numpad5: 0x48,
-    LogicalKeyboardKey.numpad6: 0x49,
-    LogicalKeyboardKey.numpad7: 0x43,
-    LogicalKeyboardKey.numpad8: 0x44,
-    LogicalKeyboardKey.numpad9: 0x45,
-    LogicalKeyboardKey.numpadDecimal: 0x51,
-    LogicalKeyboardKey.numpadComma: 0x50,
-    LogicalKeyboardKey.numpadEnter: 0x4E,
-    LogicalKeyboardKey.numpadAdd: 0x46,
-    LogicalKeyboardKey.numpadSubtract: 0x42,
-    LogicalKeyboardKey.numpadMultiply: 0x41,
-    LogicalKeyboardKey.numpadDivide: 0x40,
-    LogicalKeyboardKey.numpadEqual: 0x4A,
+    PhysicalKeyboardKey.home: 0x36,
+    PhysicalKeyboardKey.delete: 0x37,
+    PhysicalKeyboardKey.insert: 0x5E,
+    PhysicalKeyboardKey.pageUp: 0x38,    // ROLL UP
+    PhysicalKeyboardKey.pageDown: 0x39,  // ROLL DOWN
+    PhysicalKeyboardKey.capsLock: 0x5D,
+    // 記号 (JIS 配列の物理位置を真として X68k スキャンコードへ対応付け)。
+    // JIS 物理キーボードなら刻印通りに打てる。US 物理キーボードでは刻印が
+    // ずれる (例: US の `[{` キー = X68k の `@` キー) ことに注意。
+    PhysicalKeyboardKey.minus: 0x0C,         // JIS `-=`     US `-_`
+    PhysicalKeyboardKey.equal: 0x0D,         // JIS `^~`     US `=+`
+    PhysicalKeyboardKey.intlYen: 0x0E,       // JIS `¥|`     (US には無い)
+    PhysicalKeyboardKey.bracketLeft: 0x1B,   // JIS `@``     US `[{`
+    PhysicalKeyboardKey.bracketRight: 0x1C,  // JIS `[{`     US `]}`
+    PhysicalKeyboardKey.semicolon: 0x27,     // JIS `;+`     US `;:`
+    PhysicalKeyboardKey.quote: 0x28,         // JIS `:*`     US `'"`
+    PhysicalKeyboardKey.backslash: 0x29,     // JIS `]}`     US `\|`
+    PhysicalKeyboardKey.comma: 0x31,
+    PhysicalKeyboardKey.period: 0x32,
+    PhysicalKeyboardKey.slash: 0x33,
+    PhysicalKeyboardKey.intlRo: 0x34,        // JIS `\_`     (US には無い)
+    // テンキー (numpad)
+    PhysicalKeyboardKey.numpad0: 0x4F,
+    PhysicalKeyboardKey.numpad1: 0x4B,
+    PhysicalKeyboardKey.numpad2: 0x4C,
+    PhysicalKeyboardKey.numpad3: 0x4D,
+    PhysicalKeyboardKey.numpad4: 0x47,
+    PhysicalKeyboardKey.numpad5: 0x48,
+    PhysicalKeyboardKey.numpad6: 0x49,
+    PhysicalKeyboardKey.numpad7: 0x43,
+    PhysicalKeyboardKey.numpad8: 0x44,
+    PhysicalKeyboardKey.numpad9: 0x45,
+    PhysicalKeyboardKey.numpadDecimal: 0x51,
+    PhysicalKeyboardKey.numpadComma: 0x50,
+    PhysicalKeyboardKey.numpadEnter: 0x4E,
+    PhysicalKeyboardKey.numpadAdd: 0x46,
+    PhysicalKeyboardKey.numpadSubtract: 0x42,
+    PhysicalKeyboardKey.numpadMultiply: 0x41,
+    PhysicalKeyboardKey.numpadDivide: 0x40,
+    PhysicalKeyboardKey.numpadEqual: 0x4A,
   };
 
   /// HardwareKeyboard コールバック。マップにあるキーだけハンドルし、それ以外は
   /// false を返して他のリスナ (OS ショートカット等) に処理を委譲する。
   bool _handlePhysicalKey(KeyEvent event) {
-    final scancode = _physicalKeyMap[event.logicalKey];
+    final scancode = _physicalKeyMap[event.physicalKey];
     if (scancode == null) return false;
 
     if (event is KeyDownEvent) {
