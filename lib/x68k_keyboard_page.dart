@@ -161,6 +161,19 @@ class StandardX68kMode extends ChannelMode {
   bool _numpadVisible = true;
   bool _trackpadVisible = true;
 
+  /// 物理キーボード入力モード。
+  ///   false (デフォルト): X68k 配列モード — PhysicalKeyboardKey ベースで JIS
+  ///                       物理位置をそのまま X68k スキャンコードに対応付ける。
+  ///                       JIS 物理キーボードなら刻印通りに打てる。
+  ///   true:              PC キーボードモード — 記号系のキーは KeyEvent.character
+  ///                       を見て X68k 上の対応キー (+ 必要なら SHIFT 補正) に
+  ///                       マッピングする。US 物理キーボードでも「Shift+2 で @」の
+  ///                       感覚で打てる。
+  /// 個別アダプタの設定ではなくホスト側 (= ユーザ環境) の設定なので、シリアル
+  /// 接頭辞なしで永続化する。
+  bool _pcKeyboardMode = false;
+  bool get pcKeyboardMode => _pcKeyboardMode;
+
   /// デスクトップ環境で複数キー同時押し相当を実現するための sticky 状態。
   /// 本体 (_X68kKeyboardBody) が読み書きし、AppBar の "全解除" ボタンも
   /// このコントローラを購読することで表示可否を切り替える。
@@ -175,6 +188,7 @@ class StandardX68kMode extends ChannelMode {
     // serial が分かれば、保存済みの表示設定を非同期で読み込む。
     // 読み込み完了後に notifyListeners() で本体を再描画させる。
     _loadVisibility();
+    _loadPcKeyboardMode();
   }
 
   // ---------------------------------------------------------------------------
@@ -182,6 +196,8 @@ class StandardX68kMode extends ChannelMode {
   // ---------------------------------------------------------------------------
   String get _kNumpadVisible => 'x68k_keyboard.$serial.numpadVisible';
   String get _kTrackpadVisible => 'x68k_keyboard.$serial.trackpadVisible';
+  // PC キーボードモードはホスト環境の設定なので serial で切らない。
+  static const String _kPcKeyboardMode = 'x68k_keyboard.pcKeyboardMode';
 
   Future<void> _loadVisibility() async {
     final s = serial;
@@ -210,6 +226,28 @@ class StandardX68kMode extends ChannelMode {
     }
   }
 
+  Future<void> _loadPcKeyboardMode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final v = prefs.getBool(_kPcKeyboardMode);
+      if (v != null && v != _pcKeyboardMode) {
+        _pcKeyboardMode = v;
+        notifyListeners();
+      }
+    } catch (_) {
+      // 読み込み失敗は初期値 (X68k 配列モード) のまま
+    }
+  }
+
+  Future<void> _persistPcKeyboardMode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_kPcKeyboardMode, _pcKeyboardMode);
+    } catch (_) {
+      // 保存失敗は無視
+    }
+  }
+
   @override
   String get id => 'x68k_keyboard.standard';
 
@@ -235,6 +273,12 @@ class StandardX68kMode extends ChannelMode {
     _persistVisibility();
   }
 
+  void _togglePcKeyboardMode() {
+    _pcKeyboardMode = !_pcKeyboardMode;
+    notifyListeners();
+    _persistPcKeyboardMode();
+  }
+
   @override
   Widget buildBody(BuildContext context, MidiService midi) {
     // body の subtree 内では Flutter のフォーカス系キー処理を完全に遮断する。
@@ -255,6 +299,7 @@ class StandardX68kMode extends ChannelMode {
         mouseChannel: mouseChannel,
         numpadVisible: _numpadVisible,
         trackpadVisible: _trackpadVisible,
+        pcKeyboardMode: _pcKeyboardMode,
         stickyController: stickyController,
         shared: shared,
       ),
@@ -275,6 +320,13 @@ class StandardX68kMode extends ChannelMode {
             onPressed: stickyController.onReleaseAllRequested,
           );
         },
+      ),
+      IconButton(
+        tooltip: _pcKeyboardMode
+            ? '物理キーボード: PC 配列モード (Shift+2 で @ 等)'
+            : '物理キーボード: X68k 配列モード (JIS 物理位置基準)',
+        icon: Icon(_pcKeyboardMode ? Icons.keyboard_alt : Icons.keyboard),
+        onPressed: _togglePcKeyboardMode,
       ),
       if (mouseChannel != null)
         IconButton(
@@ -375,6 +427,7 @@ class _X68kKeyboardBody extends StatefulWidget {
   final int? mouseChannel;
   final bool numpadVisible;
   final bool trackpadVisible;
+  final bool pcKeyboardMode;
   final StickyKeyController stickyController;
   final X68kKeyboardSharedState shared;
 
@@ -384,6 +437,7 @@ class _X68kKeyboardBody extends StatefulWidget {
     required this.mouseChannel,
     required this.numpadVisible,
     required this.trackpadVisible,
+    required this.pcKeyboardMode,
     required this.stickyController,
     required this.shared,
   });
@@ -781,9 +835,116 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
     PhysicalKeyboardKey.numpadEqual: 0x4A,
   };
 
+  // ---------------------------------------------------------------------------
+  // PC キーボードモード用: 文字 → (X68k スキャンコード, SHIFT 要否) テーブル。
+  // ---------------------------------------------------------------------------
+  // 含めるのは X68k JIS 配列で「位置が US と違う」記号キー類だけ。英数字は
+  // 物理位置で完全に一致するので物理マップに任せる方が auto-repeat 周りで素直。
+  //
+  // US 物理キーボードのユーザが PC モードに切り替えると、例えば Shift+2 で
+  // 出る `@` 文字を、SHIFT を一瞬上げて X68k の `@` キー (0x1B) にタップで
+  // 流し込めるようになる。
+  static const Map<String, (int, bool)> _pcCharMap = {
+    // unshifted on X68k JIS
+    '@': (0x1B, false),
+    ':': (0x28, false),
+    '^': (0x0D, false),
+    '[': (0x1C, false),
+    ']': (0x29, false),
+    ';': (0x27, false),
+    '-': (0x0C, false),
+    ',': (0x31, false),
+    '.': (0x32, false),
+    '/': (0x33, false),
+    '\\': (0x34, false),   // ろキー (X68 0x34 unshifted = `\`)
+    '¥': (0x0E, false),
+    // shifted on X68k JIS
+    '_': (0x34, true),
+    '!': (0x02, true),
+    '"': (0x03, true),
+    '#': (0x04, true),
+    '\$': (0x05, true),
+    '%': (0x06, true),
+    '&': (0x07, true),
+    '\'': (0x08, true),
+    '(': (0x09, true),
+    ')': (0x0A, true),
+    '=': (0x0C, true),
+    '~': (0x0D, true),
+    '|': (0x0E, true),
+    '`': (0x1B, true),
+    '{': (0x1C, true),
+    '+': (0x27, true),
+    '*': (0x28, true),
+    '}': (0x29, true),
+    '<': (0x31, true),
+    '>': (0x32, true),
+    '?': (0x33, true),
+  };
+
+  // PC キーボードモードで「KeyDown を文字オーバーライドで処理した」物理キー集合。
+  // 同じ物理キーの KeyRepeat / KeyUp はここを見て pass-through を抑止する。
+  final Set<PhysicalKeyboardKey> _pcOverriddenKeys = {};
+
+  /// PC キーボードモード: X68k 上の SHIFT 状態を要求方向に一瞬倒した状態で
+  /// 対象キーを単発タップし、SHIFT を元に戻す。`_pressed` には触らないので
+  /// 物理 SHIFT のミラー (X68k 配列モード共通の経路) を壊さない。
+  void _emitPcSymbolTap(String ch) {
+    final entry = _pcCharMap[ch];
+    if (entry == null) return;
+    final code = entry.$1;
+    final requiresShift = entry.$2;
+
+    final x68kShiftDown = _pressed.contains(0x70);
+    final shiftAdjust = x68kShiftDown != requiresShift;
+
+    if (shiftAdjust) {
+      if (requiresShift) {
+        widget.midi.sendNoteOn(widget.channel, 0x70, 127);
+      } else {
+        widget.midi.sendNoteOff(widget.channel, 0x70);
+      }
+    }
+    widget.midi.sendNoteOn(widget.channel, code, 127);
+    widget.midi.sendNoteOff(widget.channel, code);
+    if (shiftAdjust) {
+      if (requiresShift) {
+        widget.midi.sendNoteOff(widget.channel, 0x70);
+      } else {
+        widget.midi.sendNoteOn(widget.channel, 0x70, 127);
+      }
+    }
+  }
+
   /// HardwareKeyboard コールバック。マップにあるキーだけハンドルし、それ以外は
   /// false を返して他のリスナ (OS ショートカット等) に処理を委譲する。
   bool _handlePhysicalKey(KeyEvent event) {
+    // --- PC キーボードモード: 記号系を character ベースで横取り ---
+    // KeyDown は mode が ON のときだけ判定する。一度 override に乗った物理キー
+    // は KeyRepeat / KeyUp も同じ経路で完結させたいので、モード切替を跨いでも
+    // 整合するように set ベースで管理する。
+    if (event is KeyDownEvent && widget.pcKeyboardMode) {
+      final ch = event.character;
+      if (ch != null && _pcCharMap.containsKey(ch)) {
+        _pcOverriddenKeys.add(event.physicalKey);
+        _emitPcSymbolTap(ch);
+        return true;
+      }
+    }
+    if (event is KeyRepeatEvent &&
+        _pcOverriddenKeys.contains(event.physicalKey)) {
+      final ch = event.character;
+      if (ch != null && _pcCharMap.containsKey(ch)) {
+        _emitPcSymbolTap(ch);
+      }
+      return true;
+    }
+    if (event is KeyUpEvent &&
+        _pcOverriddenKeys.remove(event.physicalKey)) {
+      return true;
+    }
+
+    // --- 通常 (X68k 配列モード) 経路: 物理位置 → X68k スキャンコード ---
     final scancode = _physicalKeyMap[event.physicalKey];
     if (scancode == null) return false;
 
