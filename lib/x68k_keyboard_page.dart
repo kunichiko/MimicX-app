@@ -66,7 +66,7 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
     super.initState();
     // 向きは各モードの onEnter で制御する (Standard は landscape 固定、
     // LineInput は unlock で任意の向き許可)。
-    _shared = X68kKeyboardSharedState();
+    _shared = X68kKeyboardSharedState(serial: widget.serial);
     // TARGET_RX を page で受けて shared に転送する。冪等パターン (既に同じ
     // closure なら触らない / dispose 時は自分がまだ active な時のみクリア)。
     widget.midi.onTargetRx = _onTargetRx;

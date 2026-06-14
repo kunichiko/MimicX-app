@@ -22,6 +22,7 @@
 // ===================================================================================
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// X68000 → キーボードの 1 バイト制御コマンドを受信した記録。
 /// 受信ログ画面の表示に使う。
@@ -380,8 +381,23 @@ class X68kKeyboardSharedState extends ChangeNotifier {
     0x60, // bit6 全角
   ];
 
+  /// アダプタ個体シリアル (Chip UID 由来 16 桁 hex)。
+  /// X68000 はキーリピート設定 (SET REPEAT DELAY / RATE) を起動時にしか送らない
+  /// ため、X68k 起動後に MimicX を接続すると初期値 (500ms / 110ms) のままになる。
+  /// 個体ごとに「最後に X68k から受信した値」を SharedPreferences に保存し、
+  /// 次回起動時はそれをデフォルトに上書きすることでこの取りこぼしを救う。
+  /// null/空なら永続化しない (in-memory only)。
+  final String? serial;
+
+  X68kKeyboardSharedState({this.serial}) {
+    _loadPersistedRepeatSettings();
+  }
+
   final Set<int> _ledOn = {};
   int _ledBrightness = 0;
+  // キーリピート設定の初期値はファーム / プロトコル仕様の保守的なデフォルト。
+  // serial が分かっていて永続化済みの値があれば _loadPersistedRepeatSettings が
+  // 起動直後に上書きする。
   int _repeatDelayMs = 500;
   int _repeatIntervalMs = 110;
 
@@ -429,6 +445,53 @@ class X68kKeyboardSharedState extends ChangeNotifier {
 
   bool isLedOn(int scancode) => _ledOn.contains(scancode);
 
+  // ---------------------------------------------------------------------------
+  // キーリピート設定のシリアル別永続化
+  // ---------------------------------------------------------------------------
+  // SharedPreferences キー (serial が無い場合は null を返して no-op にする)。
+  String? get _kRepeatDelay => (serial != null && serial!.isNotEmpty)
+      ? 'x68k_keyboard.$serial.repeatDelayMs'
+      : null;
+  String? get _kRepeatInterval => (serial != null && serial!.isNotEmpty)
+      ? 'x68k_keyboard.$serial.repeatIntervalMs'
+      : null;
+
+  Future<void> _loadPersistedRepeatSettings() async {
+    final dKey = _kRepeatDelay;
+    final iKey = _kRepeatInterval;
+    if (dKey == null || iKey == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final d = prefs.getInt(dKey);
+      final i = prefs.getInt(iKey);
+      bool changed = false;
+      if (d != null && d != _repeatDelayMs) {
+        _repeatDelayMs = d;
+        changed = true;
+      }
+      if (i != null && i != _repeatIntervalMs) {
+        _repeatIntervalMs = i;
+        changed = true;
+      }
+      if (changed) notifyListeners();
+    } catch (_) {
+      // 読み込み失敗は初期値のまま続行
+    }
+  }
+
+  Future<void> _persistRepeatSettings() async {
+    final dKey = _kRepeatDelay;
+    final iKey = _kRepeatInterval;
+    if (dKey == null || iKey == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(dKey, _repeatDelayMs);
+      await prefs.setInt(iKey, _repeatIntervalMs);
+    } catch (_) {
+      // 保存失敗は無視 (致命的ではない)
+    }
+  }
+
 
   /// X68000 から届いた 1 バイトを解釈して state を更新する。
   /// 解釈不能なバイトは握りつぶす。ログ追加と notifyListeners は末尾で一括して行う。
@@ -460,10 +523,14 @@ class X68kKeyboardSharedState extends ChangeNotifier {
     } else if ((byte & 0xF0) == 0x60) {
       // 0b0110dddd: キーリピート開始遅延 (200 + dddd × 100 ms)
       _repeatDelayMs = 200 + (byte & 0x0F) * 100;
+      // serial が分かっていれば次回起動時のために値を保存。
+      // fire-and-forget で十分 (失敗しても致命的ではない)。
+      _persistRepeatSettings();
     } else if ((byte & 0xF0) == 0x70) {
       // 0b0111rrrr: キーリピート間隔 (30 + rrrr² × 5 ms)
       final n = byte & 0x0F;
       _repeatIntervalMs = 30 + n * n * 5;
+      _persistRepeatSettings();
     } else if ((byte & 0xFC) == 0x54) {
       // 0b010101xx: LED 輝度 (xx=00 最も明るい, xx=11 最も暗い)
       _ledBrightness = byte & 0x03;
