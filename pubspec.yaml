@@ -61,7 +61,7 @@ dependency_overrides:
   flutter_midi_command_windows:
     git:
       url: https://github.com/kunichiko/flutter_midi_command_windows.git
-      ref: 7ebe8dc
+      ref: e3eea4f
 
 dev_dependencies:
   flutter_test:

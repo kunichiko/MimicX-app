@@ -192,8 +192,8 @@ packages:
     dependency: "direct overridden"
     description:
       path: "."
-      ref: "7ebe8dc"
-      resolved-ref: "7ebe8dc74ca41cba3ca64e2f0741ea2e2a93a342"
+      ref: e3eea4f
+      resolved-ref: e3eea4fb582ce32c0b507195cbaeaab5861f73c3
       url: "https://github.com/kunichiko/flutter_midi_command_windows.git"
     source: git
     version: "0.3.0"
