@@ -227,6 +227,13 @@ jobs:
       IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
       IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
       IOS_APP_STORE_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APP_STORE_PROVISIONING_PROFILE_BASE64 }}
+      # Archive 時の automatic signing が Apple に新規 cert を要求しないように、
+      # 事前に手作成した iOS App Development 証明書を keychain に入れておく。
+      # 未設定の場合は従来通り Automatic signing が Apple Developer Portal に
+      # 新規発行を依頼する経路にフォールバック (枠を消費するので注意)。
+      IOS_DEVELOPMENT_CERTIFICATE_BASE64: ${{ secrets.IOS_DEVELOPMENT_CERTIFICATE_BASE64 }}
+      IOS_DEVELOPMENT_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DEVELOPMENT_CERTIFICATE_PASSWORD }}
+      IOS_DEVELOPMENT_PROFILE_BASE64: ${{ secrets.IOS_DEVELOPMENT_PROFILE_BASE64 }}
       KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
       IOS_DISTRIBUTION_METHOD: ${{ github.event_name == 'push' && 'app-store-connect' || github.event.inputs.ios_distribution || 'ad-hoc' }}
       UPLOAD_TESTFLIGHT: ${{ github.event_name == 'push' && 'true' || github.event.inputs.upload_testflight || 'false' }}
@@ -355,6 +362,43 @@ jobs:
             echo "IOS_PROFILE_NAME=${PROFILE_NAME}"
             echo "IOS_EXPORT_METHOD=${EXPORT_METHOD}"
           } >> "${GITHUB_ENV}"
+
+          # ---------------------------------------------------------------------
+          # Apple Development 証明書 + Development provisioning profile を
+          # 同じ keychain にプリインストールする。これがあると次の
+          # `xcodebuild archive ... CODE_SIGN_STYLE=Automatic` で Xcode が
+          # 既存 cert を発見して再利用 → Apple Developer Portal に新規 cert
+          # 発行を依頼しなくなる (= "Created via API" が枠を食わなくなる)。
+          # secrets が未設定なら従来通りスキップ。
+          # ---------------------------------------------------------------------
+          if [ -n "${IOS_DEVELOPMENT_CERTIFICATE_BASE64:-}" ] \
+              && [ -n "${IOS_DEVELOPMENT_CERTIFICATE_PASSWORD:-}" ] \
+              && [ -n "${IOS_DEVELOPMENT_PROFILE_BASE64:-}" ]; then
+            echo "Installing Apple Development certificate + profile (preinstalled mode)"
+            DEV_CERT_PATH="${RUNNER_TEMP}/ios-dev-signing.p12"
+            DEV_PP_PATH="${RUNNER_TEMP}/ios-dev-profile.mobileprovision"
+
+            echo "${IOS_DEVELOPMENT_CERTIFICATE_BASE64}" | base64 --decode > "${DEV_CERT_PATH}"
+            echo "${IOS_DEVELOPMENT_PROFILE_BASE64}" | base64 --decode > "${DEV_PP_PATH}"
+
+            # 既に Distribution 用の keychain を unlock 済み (line 344) なので、
+            # そこに Development cert も import する。-A は全アプリからアクセス
+            # 可。-T /usr/bin/codesign 等の絞り込みは Distribution 側と同じく不要。
+            security import "${DEV_CERT_PATH}" \
+              -P "${IOS_DEVELOPMENT_CERTIFICATE_PASSWORD}" \
+              -A -t cert -f pkcs12 -k "${KEYCHAIN_PATH}"
+            # partition-list を再評価 (Distribution import 後にもう一度かけた方が
+            # 確実)。
+            security set-key-partition-list -S apple-tool:,apple: \
+              -s -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+
+            DEV_PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' /dev/stdin <<< "$(security cms -D -i "${DEV_PP_PATH}")")
+            cp "${DEV_PP_PATH}" "${HOME}/Library/MobileDevice/Provisioning Profiles/${DEV_PROFILE_UUID}.mobileprovision"
+            echo "Development profile UUID: ${DEV_PROFILE_UUID}"
+          else
+            echo "Development signing secrets not provided; falling back to on-demand Automatic signing"
+            echo "(this consumes 1 'Created via API' cert slot per build)"
+          fi
 
       - name: Generate ExportOptions.plist
         shell: bash
