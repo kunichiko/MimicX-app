@@ -42,6 +42,12 @@
 - [ ] マウスエミュレーション
 - [ ] キーマップ設定のカスタマイズ
 
+## 運用ドキュメント
+
+- [iOS CI 署名運用メモ](./ci-ios-signing.md) — Apple Development / Distribution
+  証明書とプロビジョニングプロファイルの **年次更新手順**。GitHub Actions の
+  iOS ビルドで使う Secrets 一覧もここ。
+
 ## 接続フロー
 
 ```
