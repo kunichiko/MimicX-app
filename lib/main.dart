@@ -75,6 +75,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     'deviceDisconnected',
   };
 
+  /// Android の MidiManager.DeviceCallback.onDeviceStatusChanged は、port の
+  /// open/close 数が変わるたびに MidiDeviceStatus.toString() を流す。実装は
+  /// AOSP MidiDeviceStatus.java の通り常に "mInputPortOpen=[...] " で始まる
+  /// (例: "mInputPortOpen=[true] mOutputPortOpenCount=[1]")。
+  /// 自分の connect/disconnect でも発火するため、これを再 scan トリガに
+  /// すると進行中の接続を `_scanAndIdentify` の `_midi.connect→disconnect` で
+  /// 破壊してしまう (Android では connectToDevice が固定 2500ms 遅延で完了する
+  /// 仕様なので、その間に確実に再 scan が走ってしまう)。
+  /// 物理 USB 挿抜は別途 onDeviceAdded/Removed が "deviceFound"/"deviceLost" を
+  /// 流すのでカバーされる。
+  static const String _androidStatusEventPrefix = 'mInputPortOpen=';
+
   StreamSubscription<String>? _midiSetupSub;
   /// MIDI setup イベントは USB 列挙で in/out 等が連続して飛んでくることがあるので
   /// 短く debounce してから 1 回だけ再 scan する。
@@ -114,6 +126,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   void _onMidiSetupChanged(String event) {
     if (_ignoredSetupEvents.contains(event)) return;
+    if (event.startsWith(_androidStatusEventPrefix)) return;
     _autoRescanDebounce?.cancel();
     _autoRescanDebounce =
         Timer(const Duration(milliseconds: 400), _maybeAutoRescan);
