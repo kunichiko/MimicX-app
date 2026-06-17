@@ -21,6 +21,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get homeSearching => 'アダプタを検索中…';
 
   @override
+  String get homeConnecting => 'アダプタに接続中…';
+
+  @override
   String get homeNoDevicesTitle => 'アダプタが見つかりません';
 
   @override

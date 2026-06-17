@@ -167,8 +167,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "feature/spm-support"
-      resolved-ref: a801eeff26948dc55e3690a7c38387e15bde563a
+      ref: "348b279"
+      resolved-ref: "348b27984a70b8abd5c8cca508733e29e9671f7d"
       url: "https://github.com/kunichiko/FlutterMidiCommand.git"
     source: git
     version: "0.5.4"

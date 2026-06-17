@@ -6,6 +6,7 @@
   "homeRescanTooltip": "再スキャン",
   "homeAboutTooltip": "アプリについて",
   "homeSearching": "アダプタを検索中…",
+  "homeConnecting": "アダプタに接続中…",
   "homeNoDevicesTitle": "アダプタが見つかりません",
   "homeNoDevicesHint": "Mimic X アダプタを接続して、右上のリロードボタンを押してください",
   "homeIncompatibleNote": "Mimic X 非対応 (応答なし)",

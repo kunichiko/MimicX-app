@@ -21,6 +21,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get homeSearching => 'Searching for adapters…';
 
   @override
+  String get homeConnecting => 'Connecting to adapter…';
+
+  @override
   String get homeNoDevicesTitle => 'No adapters found';
 
   @override

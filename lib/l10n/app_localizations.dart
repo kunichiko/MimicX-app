@@ -122,6 +122,12 @@ abstract class AppLocalizations {
   /// **'Searching for adapters…'**
   String get homeSearching;
 
+  /// No description provided for @homeConnecting.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting to adapter…'**
+  String get homeConnecting;
+
   /// No description provided for @homeNoDevicesTitle.
   ///
   /// In en, this message translates to:

@@ -35,12 +35,12 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   # flutter_midi_command: ^0.5.4   ← 旧 (upstream には SPM 対応未マージ)
-  # SPM 対応 + Windows winmm 安定化のため一時的にフォークを利用する。
+  # SPM 対応 + Android 接続 2.5s 待ちの除去のため一時的にフォークを利用する。
   # upstream PR がマージされ次第 pub.dev 版に戻すこと。
   flutter_midi_command:
     git:
       url: https://github.com/kunichiko/FlutterMidiCommand.git
-      ref: feature/spm-support
+      ref: 348b279
   shared_preferences: ^2.3.0
   # 漢字をライン入力モードで送るために Shift-JIS のテーブルを利用する。
   # (charset の組み込み Encoder は実装にバグがあって Unicode→SJIS が壊れている

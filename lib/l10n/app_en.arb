@@ -7,6 +7,7 @@
   "homeRescanTooltip": "Rescan",
   "homeAboutTooltip": "About",
   "homeSearching": "Searching for adapters…",
+  "homeConnecting": "Connecting to adapter…",
   "homeNoDevicesTitle": "No adapters found",
   "homeNoDevicesHint": "Connect a Mimic X Adapter and press the reload button in the top right.",
   "homeIncompatibleNote": "Not Mimic X compatible (no response)",

@@ -64,6 +64,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// scanAndIdentify で identity 取得後にロードする。
   final Map<String, String> _nicknames = {};
   bool _scanning = false;
+  /// _openDevice の connect+identify 中だけ true。Android で connectToDevice が
+  /// 数秒かかるため、その間にホーム画面に半透明オーバーレイ + スピナーを出して
+  /// ユーザに進捗を示す。</_routeToChannel 呼出前に false に戻すので、操作画面
+  /// 自体の表示遅延には影響しない。
+  bool _opening = false;
 
   /// 自身の connect/disconnect で発火するため再 scan のトリガにしてはいけない
   /// setup イベント名 (これらが返ってきたら無視し、それ以外は全部再 scan する)。
@@ -228,12 +233,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _openDevice(MidiDeviceInfo device) async {
-    final success = await _midi.connect(device);
+    if (_opening) return;
+    setState(() => _opening = true);
+    bool success;
+    try {
+      success = await _midi.connect(device);
+      if (success && mounted) {
+        // 既存の identity がなければ識別を試みる
+        device.identity ??= await _midi.identifyDevice();
+      }
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
     if (!success || !mounted) return;
-
-    // 既存の identity がなければ識別を試みる
-    device.identity ??= await _midi.identifyDevice();
-    if (!mounted) return;
 
     final identity = device.identity;
     final l = AppLocalizations.of(context)!;
@@ -455,7 +467,36 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // 横画面ではカメラノッチ / ジェスチャ領域が左右に来るので SafeArea で
       // 避ける (portrait では AppBar が上を、ホームバーが下を吸収するので影響なし)
       body: SafeArea(
-        child: _devices.isEmpty
+        child: Stack(
+          children: [
+            _buildBody(l),
+            if (_opening)
+              Positioned.fill(
+                child: ColoredBox(
+                  color: Colors.black54,
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(),
+                        const SizedBox(height: 16),
+                        Text(
+                          l.homeConnecting,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody(AppLocalizations l) {
+    return _devices.isEmpty
           ? Center(
               child: _scanning
                   ? Column(
@@ -554,8 +595,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ),
                 );
               },
-            ),
-      ),
-    );
+            );
   }
 }
