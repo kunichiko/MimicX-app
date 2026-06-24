@@ -151,6 +151,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _scanAndIdentify() async {
     setState(() => _scanning = true);
+    // BLE-MIDI 機 (ESP32 等) を列挙対象にするため central 起動 + スキャンを行う。
+    // Bluetooth OFF / 権限拒否時は内部で無視され USB のみで続行する。BLE 機は
+    // 発見が非同期なので、初回で出なくても "deviceFound" イベントで自動再 scan される。
+    await _midi.startBluetoothScanning();
     final devices = await _midi.scanDevices();
 
     // 各デバイスに対して接続 → IDENTIFY → 切断 を順次実行

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:typed_data';
 import 'dart:ui' show VoidCallback;
 import 'package:flutter_midi_command/flutter_midi_command.dart';
@@ -7,15 +8,26 @@ import 'protocol.dart';
 class MidiDeviceInfo {
   final String name;
   final String id;
+
+  /// トランスポート種別 ("native"=USB, "BLE", "network" など、flutter_midi_command の
+  /// MidiDevice.type をそのまま保持)。BLE はレイテンシ特性が違うため判定に使う。
+  final String type;
   final MidiDevice _device;
 
   /// IDENTIFY_RESPONSE のパース結果 (識別前は null)
   DeviceIdentity? identity;
 
-  MidiDeviceInfo({required this.name, required this.id, required MidiDevice device})
-      : _device = device;
+  MidiDeviceInfo({
+    required this.name,
+    required this.id,
+    required this.type,
+    required MidiDevice device,
+  }) : _device = device;
 
   MidiDevice get device => _device;
+
+  /// BLE-MIDI 経由のデバイスか。
+  bool get isBle => type == 'BLE';
 }
 
 class MidiService {
@@ -105,10 +117,60 @@ class MidiService {
         .map((d) => MidiDeviceInfo(
               name: d.name,
               id: d.id,
+              type: d.type,
               device: d,
             ))
         .toList();
   }
+
+  // --- BLE-MIDI -------------------------------------------------------------
+  // 標準 BLE-MIDI ペリフェラル (ESP32 等) を発見するには BLE central を起動して
+  // スキャンを開始する必要がある。発見されたデバイスは scanDevices() の列挙
+  // (MidiCommand.devices) に type=="BLE" として現れる。
+  bool _bluetoothStarted = false;
+
+  /// BLE central を起動しスキャンを開始する。Bluetooth が OFF / 権限拒否 /
+  /// 非対応プラットフォームでは黙って無視する (USB は引き続き使える)。
+  /// 複数回呼んでも安全 (central 起動は初回のみ)。
+  Future<void> startBluetoothScanning() async {
+    // 当面 iOS / macOS のみ対応 (CoreBluetooth)。Android は BLE 権限 (manifest +
+    // runtime)、Windows は BLE-MIDI 経路の対応が別途必要なため据え置き、USB のみで
+    // 動かす (既存挙動を変えない)。
+    if (!(Platform.isIOS || Platform.isMacOS)) return;
+    try {
+      if (!_bluetoothStarted) {
+        await _midiCommand.startBluetoothCentral();
+        _bluetoothStarted = true;
+        // CBCentralManager が powered on になるまで待つ (権限プロンプト含む)。
+        await _midiCommand
+            .waitUntilBluetoothIsInitialized()
+            .timeout(const Duration(seconds: 5), onTimeout: () {});
+      }
+      await _midiCommand.startScanningForBluetoothDevices();
+    } catch (_) {
+      // Bluetooth 利用不可。USB のみで続行する。
+    }
+  }
+
+  /// BLE スキャンを停止する。
+  void stopBluetoothScanning() {
+    try {
+      _midiCommand.stopScanningForBluetoothDevices();
+    } catch (_) {}
+  }
+
+  // --- トランスポート別パラメータ (protocol §2.4) ----------------------------
+  // BLE-MIDI は USB-MIDI よりラウンドトリップが遅く分割もあるため、ACK タイムアウトと
+  // HEART_BEAT 失敗許容回数を緩める。接続中デバイスの種別で自動的に切り替える。
+  bool get _bleConnected => _connectedDevice?.type == 'BLE';
+
+  /// 接続中トランスポートに応じた ACK タイムアウト (USB 100ms / BLE 400ms)。
+  Duration get _ackTimeout =>
+      _bleConnected ? const Duration(milliseconds: 400) : defaultAckTimeout;
+
+  /// HEART_BEAT 連続失敗で切断とみなす回数 (USB 3 / BLE 5)。
+  int get _heartBeatMaxFails =>
+      _bleConnected ? 5 : heartBeatMaxConsecutiveFails;
 
   Future<bool> connect(MidiDeviceInfo deviceInfo) async {
     try {
@@ -145,10 +207,19 @@ class MidiService {
   /// USB-MIDI スタックが過渡的に応答を取りこぼすことがあるため、
   /// [maxAttempts] 回まで [perAttemptTimeout] のタイムアウトでリトライする。
   Future<DeviceIdentity?> identifyDevice({
-    Duration perAttemptTimeout = const Duration(milliseconds: 400),
-    int maxAttempts = 3,
-    Duration retryDelay = const Duration(milliseconds: 200),
+    Duration? perAttemptTimeout,
+    int? maxAttempts,
+    Duration? retryDelay,
   }) async {
+    // BLE は接続直後にサービス探索/購読が走るため初回応答が遅れがち。USB より
+    // 長めのタイムアウトと多めのリトライにする (protocol §2.4)。
+    perAttemptTimeout ??= _bleConnected
+        ? const Duration(milliseconds: 600)
+        : const Duration(milliseconds: 400);
+    maxAttempts ??= _bleConnected ? 4 : 3;
+    retryDelay ??= _bleConnected
+        ? const Duration(milliseconds: 300)
+        : const Duration(milliseconds: 200);
     for (int attempt = 0; attempt < maxAttempts; attempt++) {
       final completer = Completer<DeviceIdentity?>();
       final prevHandler = onIdentifyResponse;
@@ -240,7 +311,7 @@ class MidiService {
     sendSysEx(sysex);
     try {
       return await completer.future.timeout(
-        timeout ?? defaultAckTimeout,
+        timeout ?? _ackTimeout,
         onTimeout: () {
           _pendingAcks.remove(reqId);
           return AckResult(
@@ -412,7 +483,7 @@ class MidiService {
       return;
     }
     _heartBeatConsecutiveFails++;
-    if (_heartBeatConsecutiveFails >= heartBeatMaxConsecutiveFails) {
+    if (_heartBeatConsecutiveFails >= _heartBeatMaxFails) {
       // 失敗 callback を呼ぶ前に必ず timer を止めて多重通知を防ぐ。
       final cb = _onHeartBeatFailure;
       stopHeartBeat();
@@ -430,6 +501,7 @@ class MidiService {
   /// teardown は MIDI サブシステム全体を解放するため、ここでだけ呼ぶ。
   void dispose() {
     disconnect();
+    stopBluetoothScanning();
     _midiCommand.teardown();
   }
 }

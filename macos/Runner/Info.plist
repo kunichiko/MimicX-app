@@ -33,5 +33,7 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Mimic X uses Bluetooth to discover and connect to nearby BLE-MIDI devices.</string>
 </dict>
 </plist>

@@ -1,7 +1,7 @@
 // ===================================================================================
 // Mimic X プロトコル定数とパーサ
 // ===================================================================================
-// プロトコル仕様: MimicX-protocol v0.7.0
+// プロトコル仕様: MimicX-protocol v0.8.0
 // ===================================================================================
 
 /// このアプリがサポートするプロトコルのバージョン範囲。
@@ -20,9 +20,10 @@ class MinSupportedProtocol {
   static const int minMajor = 0;
   static const int minMinor = 7;
 
-  // アプリが知っている最新プロトコルバージョン
+  // アプリが知っている最新プロトコルバージョン。
+  // 0.8 でトランスポート非依存化 + BLE-MIDI バインディングに対応 (§2.3/§2.4)。
   static const int knownLatestMajor = 0;
-  static const int knownLatestMinor = 7;
+  static const int knownLatestMinor = 8;
 
   // 旧 API 互換用 (minor が同じなら同一)
   static const int major = minMajor;
