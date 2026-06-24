@@ -63,6 +63,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// serial → ユーザー設定ニックネーム (未設定なら entry なし)。
   /// scanAndIdentify で identity 取得後にロードする。
   final Map<String, String> _nicknames = {};
+
+  /// device id → 識別済み DeviceIdentity のキャッシュ。
+  /// 再 scan のたびに各デバイスへ connect→identify→disconnect すると、特に
+  /// Android BLE では接続/切断が MidiManager の device add/remove (deviceFound /
+  /// deviceLost) を発火し、それが自動再 scan を誘発して無限ループ (スキャンが回り
+  /// 続ける) になる。識別はデバイスごとに 1 回でよいので、既知 id は接続せず
+  /// キャッシュを使う。
+  final Map<String, DeviceIdentity> _identityCache = {};
   bool _scanning = false;
   /// _openDevice の connect+identify 中だけ true。Android で connectToDevice が
   /// 数秒かかるため、その間にホーム画面に半透明オーバーレイ + スピナーを出して
@@ -157,8 +165,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     await _midi.startBluetoothScanning();
     final devices = await _midi.scanDevices();
 
-    // 各デバイスに対して接続 → IDENTIFY → 切断 を順次実行
+    // 各デバイスに対して接続 → IDENTIFY → 切断 を順次実行。
+    // ただし既に識別済み (id でキャッシュ) のデバイスは再接続しない (上記
+    // _identityCache の説明参照)。
     for (final dev in devices) {
+      final cached = _identityCache[dev.id];
+      if (cached != null) {
+        dev.identity = cached;
+        continue;
+      }
       final ok = await _midi.connect(dev);
       if (!ok) continue;
       try {
@@ -172,6 +187,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         // 識別失敗は無視 (Mimic X 以外のデバイスかも)
       }
       _midi.disconnect();
+      // 識別できたものだけキャッシュ (非対応デバイスは毎回試させる)。
+      if (dev.identity != null) {
+        _identityCache[dev.id] = dev.identity!;
+      }
     }
 
     // serial 単位のニックネームを SharedPreferences からロード
