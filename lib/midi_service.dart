@@ -139,10 +139,27 @@ class MidiService {
     // Windows は BLE-MIDI 経路が別途必要なため据え置き (USB のみ)。
     if (!(Platform.isIOS || Platform.isMacOS || Platform.isAndroid)) return;
     try {
+      if (Platform.isAndroid) {
+        // Android: scanForDevices が内部で BT 初期化・権限要求・スキャンを 1 回で行う
+        // (権限付与後はプラグインが onRequestPermissionsResult から自動でスキャンを
+        // 開始する)。startBluetoothCentral を続けて呼ぶと権限要求が二重になり、
+        // 「Can request only one set of permissions at a time」で 2 回目が空の
+        // grantResults を返し、プラグインの onRequestPermissionsResult が
+        // grantResults[0] で ArrayIndexOutOfBoundsException を投げる。よって scan のみ。
+        //
+        // さらに Android は BLE スキャン開始の頻度制限 (5 回 / 30 秒) があり、毎回
+        // startScan すると "scanning too frequently" で弾かれる。スキャンは一度
+        // 始めれば動き続け、発見済みデバイスも保持されるので、セッション中 1 回だけ
+        // 開始する (再スキャンは scanDevices() のデバイス列挙の読み直しで足りる)。
+        if (_bluetoothStarted) return;
+        _bluetoothStarted = true;
+        await _midiCommand.startScanningForBluetoothDevices();
+        return;
+      }
+      // iOS / macOS: CBCentralManager を起動し powered-on になるまで待ってからスキャン。
       if (!_bluetoothStarted) {
         await _midiCommand.startBluetoothCentral();
         _bluetoothStarted = true;
-        // CBCentralManager が powered on になるまで待つ (権限プロンプト含む)。
         await _midiCommand
             .waitUntilBluetoothIsInitialized()
             .timeout(const Duration(seconds: 5), onTimeout: () {});
@@ -392,12 +409,28 @@ class MidiService {
   // 0 = ATARI, 1 = MD 6B, 2 = Libble Rabble (XPD-1LR)
   // req_id を採番し、ACK を待って結果を返す。タイムアウト or status != OK なら
   // isOk == false の AckResult が返る。
-  Future<AckResult> setPadMode(int mode) {
-    final reqId = _reqIdAllocator.allocate();
-    return _sendAndWait(
-      reqId: reqId,
-      sysex: SysExBuilder.setConfig(reqId, 0x03, mode),
+  Future<AckResult> setPadMode(int mode) async {
+    // BLE では接続直後の最初の往復が遅れ/取りこぼしになることがある (操作画面に入った
+    // 直後の onEnter で呼ばれるため顕著)。タイムアウト (genericError) のときだけ
+    // 数回リトライする。INVALID_VALUE など明確な NG はそのまま返す。
+    final attempts = _bleConnected ? 3 : 1;
+    AckResult result = AckResult(
+      reqId: 0,
+      status: AckStatus.genericError,
+      origCmd: 0,
     );
+    for (int i = 0; i < attempts; i++) {
+      final reqId = _reqIdAllocator.allocate();
+      result = await _sendAndWait(
+        reqId: reqId,
+        sysex: SysExBuilder.setConfig(reqId, 0x03, mode),
+      );
+      if (result.status != AckStatus.genericError) return result;
+      if (i < attempts - 1) {
+        await Future.delayed(const Duration(milliseconds: 150));
+      }
+    }
+    return result;
   }
 
   /// X68000 キーボードの REMOTE 端子からリモコンコード [code] (0x01-0x1F) を
