@@ -133,10 +133,11 @@ class MidiService {
   /// 非対応プラットフォームでは黙って無視する (USB は引き続き使える)。
   /// 複数回呼んでも安全 (central 起動は初回のみ)。
   Future<void> startBluetoothScanning() async {
-    // 当面 iOS / macOS のみ対応 (CoreBluetooth)。Android は BLE 権限 (manifest +
-    // runtime)、Windows は BLE-MIDI 経路の対応が別途必要なため据え置き、USB のみで
-    // 動かす (既存挙動を変えない)。
-    if (!(Platform.isIOS || Platform.isMacOS)) return;
+    // iOS / macOS (CoreBluetooth) と Android (MidiManager BLE) に対応。
+    // Android のランタイム権限 (BLUETOOTH_SCAN/CONNECT、12 未満は位置情報) は
+    // flutter_midi_command が startBluetoothCentral 時に自動要求する。
+    // Windows は BLE-MIDI 経路が別途必要なため据え置き (USB のみ)。
+    if (!(Platform.isIOS || Platform.isMacOS || Platform.isAndroid)) return;
     try {
       if (!_bluetoothStarted) {
         await _midiCommand.startBluetoothCentral();
