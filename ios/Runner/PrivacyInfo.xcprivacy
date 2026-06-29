@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  App プライバシーマニフェスト (Apple App Store)
+  - 本アプリはユーザデータを収集せず、トラッキングも行わない。
+  - shared_preferences が利用する UserDefaults (Required Reason API) を申告する。
+    (各プラグインの Pod も自前のマニフェストを同梱しているが、app 側でも明示しておく)
+  ※ Xcode で Runner ターゲットの "Copy Bundle Resources" に含めること
+     (Runner グループへドラッグ → Target Membership: Runner にチェック)。
+-->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
