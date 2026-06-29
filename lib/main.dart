@@ -174,19 +174,26 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         dev.identity = cached;
         continue;
       }
-      final ok = await _midi.connect(dev);
-      if (!ok) continue;
-      try {
-        // identifyDevice 内部で複数回リトライするので呼び出し側は 1 回でよい。
-        // 過去には macOS の connectToDevice が CoreMIDI ポート open 完了前に返り
-        // 初回 IDENTIFY を取りこぼす問題、Android で app を一度落としてから
-        // 再接続したときに 1 回目が間に合わない問題があり、いずれも
-        // identifyDevice の内部リトライで吸収する。
-        dev.identity = await _midi.identifyDevice();
-      } catch (_) {
-        // 識別失敗は無視 (Mimic X 以外のデバイスかも)
+      // identifyDevice 内部で IDENTIFY を複数回リトライする。それでも BLE は
+      // 初回接続でサービス探索/notify 購読 (+ Windows はペアリング) が間に合わず、
+      // 1 接続セッション内のリトライ窓では取りこぼすことがある (= 初回スキャンで
+      // 「非対応」、再スキャンで成功、という症状)。これは「接続からやり直す」と
+      // 直る (新規接続では OS が探索結果をキャッシュ済みで素早く整う) ため、
+      // BLE は失敗時に接続ごとやり直す (手動再スキャンの自動化)。USB は従来どおり 1 回。
+      final connectAttempts = dev.isBle ? 2 : 1;
+      for (int i = 0; i < connectAttempts && dev.identity == null; i++) {
+        final ok = await _midi.connect(dev);
+        if (!ok) continue;
+        try {
+          dev.identity = await _midi.identifyDevice();
+        } catch (_) {
+          // 識別失敗は無視 (Mimic X 以外のデバイスかも)
+        }
+        _midi.disconnect();
+        if (dev.identity == null && i < connectAttempts - 1) {
+          await Future.delayed(const Duration(milliseconds: 400));
+        }
       }
-      _midi.disconnect();
       // 識別できたものだけキャッシュ (非対応デバイスは毎回試させる)。
       if (dev.identity != null) {
         _identityCache[dev.id] = dev.identity!;
