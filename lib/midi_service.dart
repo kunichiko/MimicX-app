@@ -376,7 +376,13 @@ class MidiService {
     final dev = _connectedDevice;
     if (dev != null) {
       _connectedDevice = null;
-      _midiCommand.disconnectDevice(dev);
+      try {
+        _midiCommand.disconnectDevice(dev);
+      } catch (_) {
+        // プラグインによっては未接続/サービス探索失敗時に disconnect が例外を投げる
+        // ことがある (Windows: BLEMidiDevice.disconnect の _midiService! null チェック等)。
+        // 切断は best-effort とし、スキャン/識別ループを止めない。
+      }
     }
   }
 
