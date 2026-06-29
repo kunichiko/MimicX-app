@@ -133,11 +133,12 @@ class MidiService {
   /// 非対応プラットフォームでは黙って無視する (USB は引き続き使える)。
   /// 複数回呼んでも安全 (central 起動は初回のみ)。
   Future<void> startBluetoothScanning() async {
-    // iOS / macOS (CoreBluetooth) と Android (MidiManager BLE) に対応。
-    // Android のランタイム権限 (BLUETOOTH_SCAN/CONNECT、12 未満は位置情報) は
-    // flutter_midi_command が startBluetoothCentral 時に自動要求する。
-    // Windows は BLE-MIDI 経路が別途必要なため据え置き (USB のみ)。
-    if (!(Platform.isIOS || Platform.isMacOS || Platform.isAndroid)) return;
+    // 対象 4 プラットフォーム (Android / iOS / macOS / Windows) すべてで BLE-MIDI に対応:
+    //   - Android: MidiManager BLE。scan のみ呼ぶ (理由は下記)。権限は plugin が自動要求。
+    //   - iOS / macOS: CoreBluetooth。central 起動 → 初期化待ち → スキャン。
+    //   - Windows: flutter_midi_command_windows (fork) が universal_ble (WinRT) で対応。
+    //     iOS/macOS と同じ central 起動→スキャン経路を使う。
+    // Bluetooth OFF / 権限拒否時は catch して USB のみで続行する。
     try {
       if (Platform.isAndroid) {
         // Android: scanForDevices が内部で BT 初期化・権限要求・スキャンを 1 回で行う
@@ -156,7 +157,7 @@ class MidiService {
         await _midiCommand.startScanningForBluetoothDevices();
         return;
       }
-      // iOS / macOS: CBCentralManager を起動し powered-on になるまで待ってからスキャン。
+      // iOS / macOS / Windows: central を起動し powered-on になるまで待ってからスキャン。
       if (!_bluetoothStarted) {
         await _midiCommand.startBluetoothCentral();
         _bluetoothStarted = true;
