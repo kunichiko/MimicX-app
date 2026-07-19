@@ -1,21 +1,30 @@
 // ===================================================================================
 // 物理ゲームコントローラー入力 (package:gamepads)
 //
-// gamepads 0.1.10 の正規化イベント (Gamepads.normalizedEvents) を使う。
-// プラットフォーム依存の生 key はパッケージ側で Xbox 標準配置の
-// GamepadButton / GamepadAxis に正規化される (十字キーは POV/HAT 軸であっても
-// dpadUp/Down/Left/Right のボタンイベントに変換される)。
+// gamepads は 0.1.8 に固定している (pubspec 参照)。0.1.9+ は Windows 実装が
+// GameInput API になり、gameinput.dll へのロード時リンクが入るため Windows 10 で
+// アプリ自体が起動できなくなるリスクがある (加えてビルドに Windows SDK 26100+ が
+// 必要)。0.1.8 の GamepadEvent は key がプラットフォーム依存の生文字列なので
+// (Android: "KEYCODE_BUTTON_A"/"AXIS_HAT_X"、Windows(winmm): "button-0"/"pov"、
+//  iOS: "buttonA"/"dpad - xAxis"、macOS: SF Symbols 名 "a.circle" 等)、
+// 本ファイルでプラットフォーム別にデコードして論理コントロール
+// (Xbox 標準配置基準) に正規化する。
 //
-// 本ファイルの責務:
-//   GamepadControl   : アプリ内の論理コントロール enum
-//   GamepadInput     : 正規化イベント → (control, pressed) への変換。
-//                      左スティックはヒステリシス付きでデジタル方向化し、
-//                      十字キーと OR 合成。複数コントローラーも OR 合成する
+// 各実装の key 仕様の確認元 (pub.dev 解決版のネイティブソース):
+//   gamepads_android 0.1.8+2 / gamepads_windows 0.1.4+1 /
+//   gamepads_ios 0.1.3+3 / gamepads_darwin 0.1.2+4
+//
+// 構成:
+//   GamepadControl   : 論理コントロール enum
+//   GamepadInput     : GamepadEvent ストリーム → (control, pressed) のデコーダ。
+//                      アナログスティック/十字キー/POV をヒステリシス付きで
+//                      デジタル方向に変換し、複数コントローラーを OR 合成する
 //   GamepadNoteBinder: 論理コントロール → note のマッピングと連射 (turbo) 適用。
 //                      画面ボタン (_ButtonGroupState) と同じ press/release 挙動
 // ===================================================================================
 
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:gamepads/gamepads.dart';
@@ -40,109 +49,245 @@ enum GamepadControl {
   start, // Start / Menu
 }
 
-/// 正規化イベントをデコードして論理コントロールの押下変化を通知する。
+/// 方向判定に使う軸の種類 (up = +1 / right = +1 に正規化して保持する)。
+enum _Axis { dpadX, dpadY, stickX, stickY }
+
+/// GamepadEvent をデコードして論理コントロールの押下変化を通知する。
 class GamepadInput {
   GamepadInput({required this.onControl});
 
   /// 論理コントロールの押下状態が変化したときに呼ばれる。
   final void Function(GamepadControl control, bool pressed) onControl;
 
-  StreamSubscription<NormalizedGamepadEvent>? _sub;
+  StreamSubscription<GamepadEvent>? _sub;
 
   // gamepadId ごとの状態。複数コントローラー接続時は最終的に OR 合成する。
-  final Map<String, Set<GamepadControl>> _buttonState = {}; // dpad 含む
-  final Map<String, double> _stickX = {};
-  final Map<String, double> _stickY = {};
-  final Map<String, Set<GamepadControl>> _stickDirState = {}; // ヒステリシス後
+  final Map<String, Map<_Axis, double>> _axes = {};
+  final Map<String, Set<GamepadControl>> _digitalDirs = {}; // Android の DPAD キー
+  final Map<String, Set<GamepadControl>> _dirState = {}; // ヒステリシス後の方向
+  final Map<String, Set<GamepadControl>> _buttonState = {};
 
   /// 通知済みの合成押下集合。
   final Set<GamepadControl> _merged = {};
 
-  // スティックのアナログ→デジタル変換のヒステリシス閾値。
-  // 斜め入力 (45° = 0.707) が両軸とも press になるよう press 閾値は 0.707 未満。
+  // アナログ→デジタル変換のヒステリシス閾値。斜め入力 (45° = 0.707) が
+  // 両軸とも press になるよう press 閾値は 0.707 未満にする。
   static const double _pressThreshold = 0.55;
   static const double _releaseThreshold = 0.35;
 
-  static const Map<GamepadButton, GamepadControl> _buttonMap = {
-    GamepadButton.dpadUp: GamepadControl.up,
-    GamepadButton.dpadDown: GamepadControl.down,
-    GamepadButton.dpadLeft: GamepadControl.left,
-    GamepadButton.dpadRight: GamepadControl.right,
-    GamepadButton.a: GamepadControl.south,
-    GamepadButton.b: GamepadControl.east,
-    GamepadButton.x: GamepadControl.west,
-    GamepadButton.y: GamepadControl.north,
-    GamepadButton.leftBumper: GamepadControl.l1,
-    GamepadButton.rightBumper: GamepadControl.r1,
-    GamepadButton.back: GamepadControl.select,
-    GamepadButton.start: GamepadControl.start,
-  };
-
   void start() {
-    _sub ??= Gamepads.normalizedEvents.listen(_onEvent);
+    _sub ??= Gamepads.events.listen(_onEvent);
   }
 
   /// 購読を止め、押下中のコントロールをすべて release 通知する。
   Future<void> stop() async {
     await _sub?.cancel();
     _sub = null;
+    _axes.clear();
+    _digitalDirs.clear();
+    _dirState.clear();
     _buttonState.clear();
-    _stickX.clear();
-    _stickY.clear();
-    _stickDirState.clear();
     for (final c in _merged.toList()) {
       _merged.remove(c);
       onControl(c, false);
     }
   }
 
-  void _onEvent(NormalizedGamepadEvent e) {
-    final button = e.button;
-    if (button != null) {
-      final control = _buttonMap[button];
-      if (control == null) return;
-      final set = _buttonState.putIfAbsent(e.gamepadId, () => {});
-      e.value > 0.5 ? set.add(control) : set.remove(control);
+  void _onEvent(GamepadEvent e) {
+    if (Platform.isAndroid) {
+      _decodeAndroid(e);
+    } else if (Platform.isWindows) {
+      _decodeWindows(e);
+    } else if (Platform.isIOS || Platform.isMacOS) {
+      _decodeDarwin(e);
     } else {
-      switch (e.axis) {
-        case GamepadAxis.leftStickX:
-          _stickX[e.gamepadId] = e.value; // right = +1
-        case GamepadAxis.leftStickY:
-          _stickY[e.gamepadId] = e.value; // up = +1
-        default:
-          return;
+      return;
+    }
+    _recompute(e.gamepadId);
+  }
+
+  // --- プラットフォーム別デコード ------------------------------------------------
+
+  /// Android: key = KeyEvent.keyCodeToString / MotionEvent.axisToString。
+  /// AXIS_Y / AXIS_HAT_Y はプラグイン側で反転済み (up = +1)。
+  void _decodeAndroid(GamepadEvent e) {
+    const buttons = {
+      'KEYCODE_BUTTON_A': GamepadControl.south,
+      'KEYCODE_BUTTON_B': GamepadControl.east,
+      'KEYCODE_BUTTON_X': GamepadControl.west,
+      'KEYCODE_BUTTON_Y': GamepadControl.north,
+      'KEYCODE_BUTTON_L1': GamepadControl.l1,
+      'KEYCODE_BUTTON_R1': GamepadControl.r1,
+      'KEYCODE_BUTTON_SELECT': GamepadControl.select,
+      'KEYCODE_BUTTON_START': GamepadControl.start,
+    };
+    const digitalDirs = {
+      'KEYCODE_DPAD_UP': GamepadControl.up,
+      'KEYCODE_DPAD_DOWN': GamepadControl.down,
+      'KEYCODE_DPAD_LEFT': GamepadControl.left,
+      'KEYCODE_DPAD_RIGHT': GamepadControl.right,
+    };
+    if (e.type == KeyType.button) {
+      final btn = buttons[e.key];
+      if (btn != null) {
+        _setButton(e.gamepadId, btn, e.value > 0.5);
+        return;
       }
-      _recomputeStick(e.gamepadId);
+      final dir = digitalDirs[e.key];
+      if (dir != null) {
+        final dirs = _digitalDirs.putIfAbsent(e.gamepadId, () => {});
+        e.value > 0.5 ? dirs.add(dir) : dirs.remove(dir);
+      }
+      return;
     }
-    _notifyMerged();
+    switch (e.key) {
+      case 'AXIS_X':
+        _setAxis(e.gamepadId, _Axis.stickX, e.value);
+      case 'AXIS_Y':
+        _setAxis(e.gamepadId, _Axis.stickY, e.value); // up = +1 (反転済み)
+      case 'AXIS_HAT_X':
+        _setAxis(e.gamepadId, _Axis.dpadX, e.value);
+      case 'AXIS_HAT_Y':
+        _setAxis(e.gamepadId, _Axis.dpadY, e.value); // up = +1 (反転済み)
+    }
   }
 
-  /// 左スティックをヒステリシス付きでデジタル方向化する。
-  void _recomputeStick(String id) {
-    final x = _stickX[id] ?? 0;
-    final y = _stickY[id] ?? 0;
-    final state = _stickDirState.putIfAbsent(id, () => {});
-
-    void update(GamepadControl dir, double signal) {
-      final wasPressed = state.contains(dir);
-      final pressed =
-          wasPressed ? signal > _releaseThreshold : signal > _pressThreshold;
-      pressed ? state.add(dir) : state.remove(dir);
+  /// Windows (winmm): button-N (XInput 系は 0=A,1=B,2=X,3=Y,4=LB,5=RB,6=Back,7=Start)、
+  /// スティックは dwXpos/dwYpos (0..65535、y は 0 が上)、十字キーは pov
+  /// (方位角の 1/100 度、離すと 65535)。
+  void _decodeWindows(GamepadEvent e) {
+    const buttons = {
+      'button-0': GamepadControl.south,
+      'button-1': GamepadControl.east,
+      'button-2': GamepadControl.west,
+      'button-3': GamepadControl.north,
+      'button-4': GamepadControl.l1,
+      'button-5': GamepadControl.r1,
+      'button-6': GamepadControl.select,
+      'button-7': GamepadControl.start,
+    };
+    if (e.type == KeyType.button) {
+      final btn = buttons[e.key];
+      if (btn != null) _setButton(e.gamepadId, btn, e.value > 0.5);
+      return;
     }
-
-    update(GamepadControl.up, y);
-    update(GamepadControl.down, -y);
-    update(GamepadControl.left, -x);
-    update(GamepadControl.right, x);
+    switch (e.key) {
+      case 'dwXpos':
+        _setAxis(e.gamepadId, _Axis.stickX, (e.value - 32767.5) / 32767.5);
+      case 'dwYpos':
+        // winmm は y=0 が上なので符号反転して up = +1 に揃える
+        _setAxis(e.gamepadId, _Axis.stickY, (32767.5 - e.value) / 32767.5);
+      case 'pov':
+        if (e.value >= 36000) {
+          // released (65535)
+          _setAxis(e.gamepadId, _Axis.dpadX, 0);
+          _setAxis(e.gamepadId, _Axis.dpadY, 0);
+        } else {
+          final rad = e.value / 100.0 * math.pi / 180.0; // 0°=上, 90°=右
+          _setAxis(e.gamepadId, _Axis.dpadX, math.sin(rad));
+          _setAxis(e.gamepadId, _Axis.dpadY, math.cos(rad));
+        }
+    }
   }
 
-  /// 全コントローラー + 全入力源を OR 合成し、変化分だけ通知する。
-  void _notifyMerged() {
+  /// iOS: "buttonA" 等の固有名。macOS: GCController 要素の SF Symbols 名
+  /// (menu/options 系のみ 0.1.2+4 から固有名)。
+  /// 軸は "dpad - xAxis" / "leftStick - yAxis" (iOS)、
+  /// "dpad - xAxis" / "l.joystick - yAxis" 等 (macOS)。yAxis は up = +1。
+  void _decodeDarwin(GamepadEvent e) {
+    const buttons = {
+      // iOS (gamepads_ios) + macOS の固有名
+      'buttonA': GamepadControl.south,
+      'buttonB': GamepadControl.east,
+      'buttonX': GamepadControl.west,
+      'buttonY': GamepadControl.north,
+      'leftShoulder': GamepadControl.l1,
+      'rightShoulder': GamepadControl.r1,
+      'buttonOptions': GamepadControl.select,
+      'buttonMenu': GamepadControl.start,
+      // macOS (gamepads_darwin, SF Symbols 名)
+      'a.circle': GamepadControl.south,
+      'b.circle': GamepadControl.east,
+      'x.circle': GamepadControl.west,
+      'y.circle': GamepadControl.north,
+      'l1.rectangle.roundedbottom': GamepadControl.l1,
+      'r1.rectangle.roundedbottom': GamepadControl.r1,
+      'line.horizontal.3.circle': GamepadControl.start,
+    };
+    final btn = buttons[e.key];
+    if (btn != null) {
+      _setButton(e.gamepadId, btn, e.value > 0.5);
+      return;
+    }
+    // 軸: key は "<要素名> - xAxis" 形式
+    final isX = e.key.endsWith('xAxis');
+    final isY = e.key.endsWith('yAxis');
+    if (!isX && !isY) return;
+    final isDpad = e.key.startsWith('dpad');
+    final isLeftStick =
+        e.key.startsWith('leftStick') || e.key.startsWith('l.joystick');
+    if (isDpad) {
+      _setAxis(e.gamepadId, isX ? _Axis.dpadX : _Axis.dpadY, e.value);
+    } else if (isLeftStick) {
+      _setAxis(e.gamepadId, isX ? _Axis.stickX : _Axis.stickY, e.value);
+    }
+  }
+
+  // --- 状態更新と合成 ------------------------------------------------------------
+
+  void _setAxis(String id, _Axis axis, double value) {
+    _axes.putIfAbsent(id, () => {})[axis] = value;
+  }
+
+  void _setButton(String id, GamepadControl control, bool pressed) {
+    final set = _buttonState.putIfAbsent(id, () => {});
+    pressed ? set.add(control) : set.remove(control);
+  }
+
+  /// 方向のアナログ信号強度 (0 以上)。dpad とスティックの強い方を採用する。
+  double _dirSignal(Map<_Axis, double> axes, GamepadControl dir) {
+    switch (dir) {
+      case GamepadControl.up:
+        return math.max(axes[_Axis.dpadY] ?? 0, axes[_Axis.stickY] ?? 0);
+      case GamepadControl.down:
+        return math.max(-(axes[_Axis.dpadY] ?? 0), -(axes[_Axis.stickY] ?? 0));
+      case GamepadControl.left:
+        return math.max(-(axes[_Axis.dpadX] ?? 0), -(axes[_Axis.stickX] ?? 0));
+      case GamepadControl.right:
+        return math.max(axes[_Axis.dpadX] ?? 0, axes[_Axis.stickX] ?? 0);
+      default:
+        return 0;
+    }
+  }
+
+  static const List<GamepadControl> _dirs = [
+    GamepadControl.up,
+    GamepadControl.down,
+    GamepadControl.left,
+    GamepadControl.right,
+  ];
+
+  void _recompute(String id) {
+    final axes = _axes[id] ?? const {};
+    final digital = _digitalDirs[id] ?? const {};
+    final dirState = _dirState.putIfAbsent(id, () => {});
+
+    for (final dir in _dirs) {
+      final signal = _dirSignal(axes, dir);
+      final wasPressed = dirState.contains(dir);
+      // ヒステリシス: press は 0.55 超え、release は 0.35 未満で判定。
+      // Android のデジタル DPAD キーは無条件で press 扱い。
+      final pressed = digital.contains(dir) ||
+          (wasPressed ? signal > _releaseThreshold : signal > _pressThreshold);
+      pressed ? dirState.add(dir) : dirState.remove(dir);
+    }
+
+    // 全コントローラーの OR 合成 → 変化分を通知
     final next = <GamepadControl>{};
-    for (final s in _buttonState.values) {
+    for (final s in _dirState.values) {
       next.addAll(s);
     }
-    for (final s in _stickDirState.values) {
+    for (final s in _buttonState.values) {
       next.addAll(s);
     }
     for (final c in next.difference(_merged)) {
