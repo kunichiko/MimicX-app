@@ -29,6 +29,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:gamepads/gamepads.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'joystick_settings.dart';
 import 'midi_service.dart';
@@ -431,5 +432,75 @@ class GamepadNoteBinder {
     // stop() が押下中コントロールの release を onControl 経由で通知するので、
     // ここで note の解放も完了する。
     await _input.stop();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 固定マッピング定義 (ジョイスティック画面のモードと共有)
+// ---------------------------------------------------------------------------
+
+/// ATARI 互換モード: 十字キー/左スティック → 方向、下ボタン → A、右ボタン → B。
+const Map<GamepadControl, int> atariGamepadMapping = {
+  GamepadControl.up: MidiService.noteUp,
+  GamepadControl.down: MidiService.noteDown,
+  GamepadControl.left: MidiService.noteLeft,
+  GamepadControl.right: MidiService.noteRight,
+  GamepadControl.south: MidiService.noteA,
+  GamepadControl.east: MidiService.noteB,
+};
+
+/// MD 6B モード: 下段 (X/A/B) → A/B/C、上段 (LB/Y/RB) → X/Y/Z、
+/// Start → START、Back → MODE。
+const Map<GamepadControl, int> md6GamepadMapping = {
+  GamepadControl.up: MidiService.noteUp,
+  GamepadControl.down: MidiService.noteDown,
+  GamepadControl.left: MidiService.noteLeft,
+  GamepadControl.right: MidiService.noteRight,
+  GamepadControl.west: MidiService.noteA,
+  GamepadControl.south: MidiService.noteB,
+  GamepadControl.east: MidiService.noteC,
+  GamepadControl.l1: MidiService.noteX,
+  GamepadControl.north: MidiService.noteY,
+  GamepadControl.r1: MidiService.noteZ,
+  GamepadControl.start: MidiService.noteStart,
+  GamepadControl.select: MidiService.noteMode,
+};
+
+/// ジョイスティック UI の外 (キーボード画面など) でゲームパッドを有効にするための
+/// 自己完結セッション。永続化された「直前のジョイスティックモード」(ATARI/MD6) の
+/// マッピングと連射設定で binder を構築する。Libble Rabble / MSX マウスが直前
+/// モードの場合はゲームパッド非対応なので ATARI にフォールバックする。
+class PersistedGamepadSession {
+  PersistedGamepadSession._(this.binder, this._settings);
+
+  final GamepadNoteBinder binder;
+  final JoystickSettings _settings;
+
+  static Future<PersistedGamepadSession> create(
+    MidiService midi, {
+    ValueNotifier<Set<int>>? pressedNotes,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final modeId =
+        prefs.getString('joystick.selectedMode') ?? 'joystick.atari';
+    final isMd6 = modeId == 'joystick.md6';
+    final settings =
+        JoystickSettings(prefix: isMd6 ? 'joystick.md6' : 'joystick.atari');
+    await settings.load();
+    // ファーム側のパッドモードも合わせる。失敗しても binder は作る
+    // (旧ファームでは NG が返るだけで実害なし)。
+    await midi.setPadMode(isMd6 ? 1 : 0);
+    final binder = GamepadNoteBinder(
+      midi: midi,
+      settings: settings,
+      mapping: isMd6 ? md6GamepadMapping : atariGamepadMapping,
+      pressedNotes: pressedNotes,
+    );
+    return PersistedGamepadSession._(binder, settings);
+  }
+
+  Future<void> dispose() async {
+    await binder.dispose();
+    _settings.dispose();
   }
 }

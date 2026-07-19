@@ -26,11 +26,16 @@ class JoystickPage extends StatefulWidget {
   /// null/空ならサブタイトル非表示。
   final String? deviceName;
 
+  /// Combined デバイスの同時セッションでキーボード画面へ切り替えるボタンを
+  /// 表示する。null なら非表示 (従来どおり単機能ページ)。
+  final VoidCallback? onSwitchToKeyboard;
+
   const JoystickPage({
     super.key,
     required this.midi,
     this.channel = MidiService.chJoystickDefault,
     this.deviceName,
+    this.onSwitchToKeyboard,
   });
 
   @override
@@ -82,6 +87,14 @@ class _JoystickPageState extends State<JoystickPage> {
       midi: widget.midi,
       modes: _modes,
       persistenceKey: 'joystick.selectedMode',
+      extraActions: [
+        if (widget.onSwitchToKeyboard != null)
+          IconButton(
+            icon: const Icon(Icons.keyboard),
+            tooltip: l.switchToKeyboard,
+            onPressed: widget.onSwitchToKeyboard,
+          ),
+      ],
     );
   }
 }
@@ -113,17 +126,6 @@ class AtariMode extends ChannelMode {
   @override
   String get id => 'joystick.atari';
 
-  /// 物理ゲームパッドの固定マッピング (十字キー/左スティック → 方向、
-  /// 下ボタン → A、右ボタン → B)。
-  static const Map<GamepadControl, int> _gamepadMapping = {
-    GamepadControl.up: MidiService.noteUp,
-    GamepadControl.down: MidiService.noteDown,
-    GamepadControl.left: MidiService.noteLeft,
-    GamepadControl.right: MidiService.noteRight,
-    GamepadControl.south: MidiService.noteA,
-    GamepadControl.east: MidiService.noteB,
-  };
-
   GamepadNoteBinder? _gamepad;
 
   /// パッド起因で押下中の note (画面ボタンの発光連動用)。
@@ -142,7 +144,7 @@ class AtariMode extends ChannelMode {
     _gamepad ??= GamepadNoteBinder(
       midi: midi,
       settings: _settings,
-      mapping: _gamepadMapping,
+      mapping: atariGamepadMapping,
       pressedNotes: _gamepadPressed,
     );
     return null;
@@ -200,23 +202,6 @@ class Md6Mode extends ChannelMode {
   @override
   String get id => 'joystick.md6';
 
-  /// 物理ゲームパッドの固定マッピング。MD 6B の物理配置に合わせて
-  /// 下段 (X/A/B の横並び) → A/B/C、上段 (LB/Y/RB) → X/Y/Z とする。
-  static const Map<GamepadControl, int> _gamepadMapping = {
-    GamepadControl.up: MidiService.noteUp,
-    GamepadControl.down: MidiService.noteDown,
-    GamepadControl.left: MidiService.noteLeft,
-    GamepadControl.right: MidiService.noteRight,
-    GamepadControl.west: MidiService.noteA, // 左ボタン → A
-    GamepadControl.south: MidiService.noteB, // 下ボタン → B
-    GamepadControl.east: MidiService.noteC, // 右ボタン → C
-    GamepadControl.l1: MidiService.noteX,
-    GamepadControl.north: MidiService.noteY,
-    GamepadControl.r1: MidiService.noteZ,
-    GamepadControl.start: MidiService.noteStart,
-    GamepadControl.select: MidiService.noteMode,
-  };
-
   GamepadNoteBinder? _gamepad;
 
   /// パッド起因で押下中の note (画面ボタンの発光連動用)。
@@ -235,7 +220,7 @@ class Md6Mode extends ChannelMode {
     _gamepad ??= GamepadNoteBinder(
       midi: midi,
       settings: _settings,
-      mapping: _gamepadMapping,
+      mapping: md6GamepadMapping,
       pressedNotes: _gamepadPressed,
     );
     return null;

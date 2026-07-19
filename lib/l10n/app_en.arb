@@ -1,9 +1,9 @@
 {
   "@@locale": "en",
-
   "appTitle": "Mimic X",
-  "@appTitle": { "description": "App display name" },
-
+  "@appTitle": {
+    "description": "App display name"
+  },
   "homeRescanTooltip": "Rescan",
   "homeAboutTooltip": "About",
   "homeSearching": "Searching for adapters…",
@@ -14,51 +14,73 @@
   "homeFirmwareVersion": "fw {fwVersion} (proto {protoVersion})",
   "@homeFirmwareVersion": {
     "placeholders": {
-      "fwVersion": { "type": "String" },
-      "protoVersion": { "type": "String" }
+      "fwVersion": {
+        "type": "String"
+      },
+      "protoVersion": {
+        "type": "String"
+      }
     }
   },
   "homeChannelLabel": "CH{channel} - {target}",
   "@homeChannelLabel": {
     "placeholders": {
-      "channel": { "type": "int" },
-      "target": { "type": "String" }
+      "channel": {
+        "type": "int"
+      },
+      "target": {
+        "type": "String"
+      }
     }
   },
-
   "deviceNotResponding": "No response from adapter (may not be Mimic X compatible)",
   "noChannelsAvailable": "No usable channels",
   "unsupportedFunction": "Unsupported function: {hidType} / {target}",
   "@unsupportedFunction": {
     "placeholders": {
-      "hidType": { "type": "String" },
-      "target": { "type": "String" }
+      "hidType": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      }
     }
   },
   "protocolTooOld": "Firmware is too old (proto {deviceVersion}, requires {minVersion} or newer). Please update the adapter.",
   "@protocolTooOld": {
     "placeholders": {
-      "deviceVersion": { "type": "String" },
-      "minVersion": { "type": "String" }
+      "deviceVersion": {
+        "type": "String"
+      },
+      "minVersion": {
+        "type": "String"
+      }
     }
   },
   "protocolNewerWarningTitle": "Possibly incompatible",
   "protocolNewerWarningBody": "The firmware protocol version (proto {deviceVersion}) is newer than the latest known to this app (proto {knownVersion}). Please update the app for full compatibility.",
   "@protocolNewerWarningBody": {
     "placeholders": {
-      "deviceVersion": { "type": "String" },
-      "knownVersion": { "type": "String" }
+      "deviceVersion": {
+        "type": "String"
+      },
+      "knownVersion": {
+        "type": "String"
+      }
     }
   },
   "padModeSwitchFailed": "Failed to switch to {mode} mode ({reason})",
   "@padModeSwitchFailed": {
     "placeholders": {
-      "mode": { "type": "String" },
-      "reason": { "type": "String" }
+      "mode": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
     }
   },
   "selectFunction": "Select function",
-
   "joystickTitle": "Joystick",
   "controllerSettings": "Controller Settings",
   "padModeAtari": "ATARI",
@@ -66,54 +88,71 @@
   "padModeLibbleRabble": "Libble Rabble",
   "padModeMsxMouse": "MSX Mouse",
   "msxMouseFirmwareUpdateHint": "Your firmware may not support MSX Mouse yet. Please update the firmware.",
-
   "deadZoneLabel": "D-pad dead zone radius: {percent}%",
   "@deadZoneLabel": {
-    "placeholders": { "percent": { "type": "int" } }
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
   },
   "deadZoneHelp": "Smaller values respond to less finger movement. 0% means a direction is always pressed even at the center.",
-
   "extraHitLabel": "Button hit area extension: +{px} px",
   "@extraHitLabel": {
-    "placeholders": { "px": { "type": "int" } }
+    "placeholders": {
+      "px": {
+        "type": "int"
+      }
+    }
   },
   "extraHitHelp": "Larger values overlap adjacent buttons, so you can press multiple buttons with the side of one finger or slide from A to B.",
-
   "turboRateLabel": "Turbo rate: {hz} Hz",
   "@turboRateLabel": {
-    "placeholders": { "hz": { "type": "int" } }
+    "placeholders": {
+      "hz": {
+        "type": "int"
+      }
+    }
   },
   "turboRateHelp": "Number of presses per second for buttons with turbo enabled.",
-
   "turboToggleSection": "Turbo on/off",
   "turboToggleHelp": "Buttons with turbo enabled will repeat press / release at the rate above while held.",
   "turboBadge": "T",
-  "@turboBadge": { "description": "Short badge shown on a button when turbo is enabled" },
-
+  "@turboBadge": {
+    "description": "Short badge shown on a button when turbo is enabled"
+  },
   "x68kKeyboardTitle": "X68000 Keyboard",
-
   "deviceRenameTooltip": "Rename",
   "deviceRenameTitle": "Rename adapter",
   "deviceRenameHint": "Nickname (up to 50 characters)",
   "deviceRenameSerialLabel": "Serial: {serial}",
   "@deviceRenameSerialLabel": {
-    "placeholders": { "serial": { "type": "String" } }
+    "placeholders": {
+      "serial": {
+        "type": "String"
+      }
+    }
   },
   "deviceRenameSaveButton": "Save",
   "deviceRenameClearButton": "Reset to default",
   "deviceRenameConnecting": "Connecting…",
   "deviceRenameConnectFailed": "Could not connect to the adapter for renaming.",
   "connectionLost": "Lost connection to the adapter. Rescanning…",
-
   "aboutTitle": "About",
   "aboutAppDescription": "USB-MIDI controller app for retro PC HID emulation. Use a smartphone as a joystick or keyboard for X68000 / MSX via the Mimic X Adapter.",
   "aboutVersion": "Version {version} ({build})",
   "@aboutVersion": {
     "placeholders": {
-      "version": { "type": "String" },
-      "build": { "type": "String" }
+      "version": {
+        "type": "String"
+      },
+      "build": {
+        "type": "String"
+      }
     }
   },
   "aboutLicensesButton": "Open source licenses",
-  "aboutCopyright": "© 2026 Kunihiko Ohnaka"
+  "aboutCopyright": "© 2026 Kunihiko Ohnaka",
+  "switchToKeyboard": "Switch to keyboard",
+  "switchToJoystick": "Switch to joystick"
 }

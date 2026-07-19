@@ -1,8 +1,6 @@
 {
   "@@locale": "ja",
-
   "appTitle": "Mimic X",
-
   "homeRescanTooltip": "再スキャン",
   "homeAboutTooltip": "アプリについて",
   "homeSearching": "アダプタを検索中…",
@@ -12,7 +10,6 @@
   "homeIncompatibleNote": "Mimic X 非対応 (応答なし)",
   "homeFirmwareVersion": "fw {fwVersion} (proto {protoVersion})",
   "homeChannelLabel": "CH{channel} - {target}",
-
   "deviceNotResponding": "アダプタから応答がありません (Mimic X 互換ではない可能性)",
   "noChannelsAvailable": "使用可能なチャンネルがありません",
   "unsupportedFunction": "未対応の機能です: {hidType} / {target}",
@@ -21,7 +18,6 @@
   "protocolNewerWarningBody": "ファームウェアのプロトコルバージョン (proto {deviceVersion}) がアプリが知っている最新版 (proto {knownVersion}) より新しいです。アプリを最新に更新することを推奨します。",
   "padModeSwitchFailed": "{mode} モードへの切替に失敗しました ({reason})",
   "selectFunction": "使用する機能を選択",
-
   "joystickTitle": "Joystick",
   "controllerSettings": "操作設定",
   "padModeAtari": "ATARI",
@@ -29,22 +25,16 @@
   "padModeLibbleRabble": "リブルラブル",
   "padModeMsxMouse": "MSX マウス",
   "msxMouseFirmwareUpdateHint": "ファームウェアが MSX マウスに未対応の可能性があります。ファームウェアを更新してください。",
-
   "deadZoneLabel": "方向キー不感エリア半径: {percent}%",
   "deadZoneHelp": "小さいほど少ない指の動きで方向が反応する。0% は中央でも常時いずれかが押された状態になる。",
-
   "extraHitLabel": "ボタンヒット範囲拡張: +{px} px",
   "extraHitHelp": "大きくすると隣接ボタンとオーバーラップし、指の腹での同時押しや A→B のスライド遷移ができるようになる。",
-
   "turboRateLabel": "連射速度: {hz} Hz",
   "turboRateHelp": "1 秒間に発火するボタン押下回数。下の連射 ON/OFF を有効にしたボタンに適用される。",
-
   "turboToggleSection": "連射 ON/OFF",
   "turboToggleHelp": "有効にしたボタンは押している間、上の連射速度で press / release を繰り返す。",
   "turboBadge": "連",
-
   "x68kKeyboardTitle": "X68000 Keyboard",
-
   "deviceRenameTooltip": "名前を変更",
   "deviceRenameTitle": "アダプタの名前を変更",
   "deviceRenameHint": "ニックネーム (最大 50 文字)",
@@ -54,10 +44,11 @@
   "deviceRenameConnecting": "接続中…",
   "deviceRenameConnectFailed": "名前変更のための接続に失敗しました。",
   "connectionLost": "アダプタとの通信が途絶えました。再スキャンします。",
-
   "aboutTitle": "このアプリについて",
   "aboutAppDescription": "Mimic X アダプタを介して、スマートフォンをレトロ PC (X68000 / MSX等) のジョイスティックやキーボードとして使うための USB-MIDI コントローラアプリです。",
   "aboutVersion": "バージョン {version} ({build})",
   "aboutLicensesButton": "オープンソースライセンス",
-  "aboutCopyright": "© 2026 Kunihiko Ohnaka"
+  "aboutCopyright": "© 2026 Kunihiko Ohnaka",
+  "switchToKeyboard": "キーボード画面へ切替",
+  "switchToJoystick": "ジョイスティック画面へ切替"
 }

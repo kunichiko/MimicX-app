@@ -391,6 +391,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'© 2026 Kunihiko Ohnaka'**
   String get aboutCopyright;
+
+  /// No description provided for @switchToKeyboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch to keyboard'**
+  String get switchToKeyboard;
+
+  /// No description provided for @switchToJoystick.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch to joystick'**
+  String get switchToJoystick;
 }
 
 class _AppLocalizationsDelegate
