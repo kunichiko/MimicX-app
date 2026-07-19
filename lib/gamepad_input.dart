@@ -27,6 +27,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:gamepads/gamepads.dart';
 
 import 'joystick_settings.dart';
@@ -312,6 +313,7 @@ class GamepadNoteBinder {
     required this.midi,
     required this.settings,
     required this.mapping,
+    this.pressedNotes,
   }) {
     _lastTurboNotes = settings.turboNotes;
     _lastTurboRate = settings.turboRate;
@@ -323,6 +325,10 @@ class GamepadNoteBinder {
   final MidiService midi;
   final JoystickSettings settings;
   final Map<GamepadControl, int> mapping;
+
+  /// パッド起因で論理押下中の note 集合を UI へ通知する (画面ボタンの発光連動用)。
+  /// null なら通知しない。
+  final ValueNotifier<Set<int>>? pressedNotes;
 
   late final GamepadInput _input;
 
@@ -354,6 +360,7 @@ class GamepadNoteBinder {
         midi.joystickRelease(note);
       }
     }
+    pressedNotes?.value = Set.unmodifiable(_activeNotes);
     _ensureTurboTimer();
   }
 

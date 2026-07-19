@@ -126,6 +126,10 @@ class AtariMode extends ChannelMode {
 
   GamepadNoteBinder? _gamepad;
 
+  /// パッド起因で押下中の note (画面ボタンの発光連動用)。
+  final ValueNotifier<Set<int>> _gamepadPressed =
+      ValueNotifier(const <int>{});
+
   @override
   String label(BuildContext context) =>
       AppLocalizations.of(context)!.padModeAtari;
@@ -139,6 +143,7 @@ class AtariMode extends ChannelMode {
       midi: midi,
       settings: _settings,
       mapping: _gamepadMapping,
+      pressedNotes: _gamepadPressed,
     );
     return null;
   }
@@ -151,7 +156,13 @@ class AtariMode extends ChannelMode {
 
   @override
   Widget buildBody(BuildContext context, MidiService midi) {
-    return _LandscapeGate(child: _AtariLayout(midi: midi, settings: _settings));
+    return _LandscapeGate(
+      child: _AtariLayout(
+        midi: midi,
+        settings: _settings,
+        gamepadPressed: _gamepadPressed,
+      ),
+    );
   }
 
   @override
@@ -161,6 +172,7 @@ class AtariMode extends ChannelMode {
   @override
   void dispose() {
     _gamepad?.dispose();
+    _gamepadPressed.dispose();
     _settings.dispose();
     super.dispose();
   }
@@ -207,6 +219,10 @@ class Md6Mode extends ChannelMode {
 
   GamepadNoteBinder? _gamepad;
 
+  /// パッド起因で押下中の note (画面ボタンの発光連動用)。
+  final ValueNotifier<Set<int>> _gamepadPressed =
+      ValueNotifier(const <int>{});
+
   @override
   String label(BuildContext context) =>
       AppLocalizations.of(context)!.padModeMd6;
@@ -220,6 +236,7 @@ class Md6Mode extends ChannelMode {
       midi: midi,
       settings: _settings,
       mapping: _gamepadMapping,
+      pressedNotes: _gamepadPressed,
     );
     return null;
   }
@@ -232,7 +249,13 @@ class Md6Mode extends ChannelMode {
 
   @override
   Widget buildBody(BuildContext context, MidiService midi) {
-    return _LandscapeGate(child: _Md6Layout(midi: midi, settings: _settings));
+    return _LandscapeGate(
+      child: _Md6Layout(
+        midi: midi,
+        settings: _settings,
+        gamepadPressed: _gamepadPressed,
+      ),
+    );
   }
 
   @override
@@ -242,6 +265,7 @@ class Md6Mode extends ChannelMode {
   @override
   void dispose() {
     _gamepad?.dispose();
+    _gamepadPressed.dispose();
     _settings.dispose();
     super.dispose();
   }
@@ -379,6 +403,10 @@ class _DPad extends StatefulWidget {
   final int noteDown;
   final int noteLeft;
   final int noteRight;
+
+  /// 物理ゲームパッド起因で押下中の note (発光連動用、表示のみに使う)。
+  final ValueListenable<Set<int>>? externalPressed;
+
   const _DPad({
     required this.midi,
     required this.deadZoneRatio,
@@ -386,6 +414,7 @@ class _DPad extends StatefulWidget {
     this.noteDown = MidiService.noteDown,
     this.noteLeft = MidiService.noteLeft,
     this.noteRight = MidiService.noteRight,
+    this.externalPressed,
   });
 
   @override
@@ -474,25 +503,43 @@ class _DPadState extends State<_DPad> {
           color: Colors.grey.shade900,
           borderRadius: BorderRadius.circular(16),
         ),
-        child: Stack(
-          children: [
-            Align(
-              alignment: Alignment.topCenter,
-              child: _DPadArrow(icon: Icons.arrow_drop_up, active: _up, width: 64, height: 60),
-            ),
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: _DPadArrow(icon: Icons.arrow_drop_down, active: _down, width: 64, height: 60),
-            ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: _DPadArrow(icon: Icons.arrow_left, active: _left, width: 60, height: 64),
-            ),
-            Align(
-              alignment: Alignment.centerRight,
-              child: _DPadArrow(icon: Icons.arrow_right, active: _right, width: 60, height: 64),
-            ),
-          ],
+        child: ValueListenableBuilder<Set<int>>(
+          valueListenable:
+              widget.externalPressed ?? const _EmptyNoteSetListenable(),
+          builder: (context, ext, _) {
+            return Stack(
+              children: [
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: _DPadArrow(
+                      icon: Icons.arrow_drop_up,
+                      active: _up || ext.contains(widget.noteUp),
+                      width: 64, height: 60),
+                ),
+                Align(
+                  alignment: Alignment.bottomCenter,
+                  child: _DPadArrow(
+                      icon: Icons.arrow_drop_down,
+                      active: _down || ext.contains(widget.noteDown),
+                      width: 64, height: 60),
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _DPadArrow(
+                      icon: Icons.arrow_left,
+                      active: _left || ext.contains(widget.noteLeft),
+                      width: 60, height: 64),
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: _DPadArrow(
+                      icon: Icons.arrow_right,
+                      active: _right || ext.contains(widget.noteRight),
+                      width: 60, height: 64),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -524,6 +571,17 @@ class _DPadArrow extends StatelessWidget {
       child: Icon(icon, size: 40, color: active ? Colors.white : Colors.grey),
     );
   }
+}
+
+/// externalPressed 未指定時に使う空の Listenable (const にできるダミー)。
+class _EmptyNoteSetListenable implements ValueListenable<Set<int>> {
+  const _EmptyNoteSetListenable();
+  @override
+  void addListener(VoidCallback listener) {}
+  @override
+  void removeListener(VoidCallback listener) {}
+  @override
+  Set<int> get value => const <int>{};
 }
 
 // ---------------------------------------------------------------------------
@@ -559,6 +617,9 @@ class _ButtonGroup extends StatefulWidget {
   final Set<int> turboNotes;
   final double turboRate;
 
+  /// 物理ゲームパッド起因で押下中の note (発光連動用、表示のみに使う)。
+  final ValueListenable<Set<int>>? externalPressed;
+
   const _ButtonGroup({
     required this.midi,
     required this.buttons,
@@ -566,6 +627,7 @@ class _ButtonGroup extends StatefulWidget {
     required this.extraHitRadius,
     required this.turboNotes,
     required this.turboRate,
+    this.externalPressed,
   });
 
   @override
@@ -754,23 +816,30 @@ class _ButtonGroupState extends State<_ButtonGroup> {
       child: SizedBox(
         width: widget.groupSize.width,
         height: widget.groupSize.height,
-        child: Stack(
-          children: [
-            for (final btn in widget.buttons)
-              Positioned(
-                left: btn.center.dx - btn.size / 2,
-                top: btn.center.dy - btn.size / 2,
-                child: IgnorePointer(
-                  child: _ActionButtonView(
-                    label: btn.label,
-                    color: btn.color,
-                    size: btn.size,
-                    pressed: _activeNotes.contains(btn.note),
-                    turbo: widget.turboNotes.contains(btn.note),
+        child: ValueListenableBuilder<Set<int>>(
+          valueListenable:
+              widget.externalPressed ?? const _EmptyNoteSetListenable(),
+          builder: (context, ext, _) {
+            return Stack(
+              children: [
+                for (final btn in widget.buttons)
+                  Positioned(
+                    left: btn.center.dx - btn.size / 2,
+                    top: btn.center.dy - btn.size / 2,
+                    child: IgnorePointer(
+                      child: _ActionButtonView(
+                        label: btn.label,
+                        color: btn.color,
+                        size: btn.size,
+                        pressed: _activeNotes.contains(btn.note) ||
+                            ext.contains(btn.note),
+                        turbo: widget.turboNotes.contains(btn.note),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-          ],
+              ],
+            );
+          },
         ),
       ),
     );
@@ -784,7 +853,12 @@ class _ButtonGroupState extends State<_ButtonGroup> {
 class _AtariLayout extends StatelessWidget {
   final MidiService midi;
   final JoystickSettings settings;
-  const _AtariLayout({required this.midi, required this.settings});
+  final ValueListenable<Set<int>> gamepadPressed;
+  const _AtariLayout({
+    required this.midi,
+    required this.settings,
+    required this.gamepadPressed,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -810,7 +884,11 @@ class _AtariLayout extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            _DPad(midi: midi, deadZoneRatio: settings.deadZoneRatio),
+            _DPad(
+              midi: midi,
+              deadZoneRatio: settings.deadZoneRatio,
+              externalPressed: gamepadPressed,
+            ),
             _ButtonGroup(
               midi: midi,
               buttons: buttons,
@@ -818,6 +896,7 @@ class _AtariLayout extends StatelessWidget {
               extraHitRadius: settings.extraHitRadius,
               turboNotes: settings.turboNotes,
               turboRate: settings.turboRate,
+              externalPressed: gamepadPressed,
             ),
           ],
         ),
@@ -833,7 +912,12 @@ class _AtariLayout extends StatelessWidget {
 class _Md6Layout extends StatelessWidget {
   final MidiService midi;
   final JoystickSettings settings;
-  const _Md6Layout({required this.midi, required this.settings});
+  final ValueListenable<Set<int>> gamepadPressed;
+  const _Md6Layout({
+    required this.midi,
+    required this.settings,
+    required this.gamepadPressed,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -868,6 +952,7 @@ class _Md6Layout extends StatelessWidget {
             child: _SingleButton(
               midi: midi, note: MidiService.noteMode, label: 'Mode',
               color: Colors.grey, size: 40, width: 72,
+              externalPressed: gamepadPressed,
             ),
           ),
           // Start (中央、単独タップ)
@@ -876,6 +961,7 @@ class _Md6Layout extends StatelessWidget {
             child: _SingleButton(
               midi: midi, note: MidiService.noteStart, label: 'Start',
               color: Colors.grey, size: 48, width: 88,
+              externalPressed: gamepadPressed,
             ),
           ),
           // 十字キー + 6 ボタン
@@ -885,7 +971,11 @@ class _Md6Layout extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _DPad(midi: midi, deadZoneRatio: settings.deadZoneRatio),
+                  _DPad(
+                    midi: midi,
+                    deadZoneRatio: settings.deadZoneRatio,
+                    externalPressed: gamepadPressed,
+                  ),
                   _ButtonGroup(
                     midi: midi,
                     buttons: buttons,
@@ -893,6 +983,7 @@ class _Md6Layout extends StatelessWidget {
                     extraHitRadius: settings.extraHitRadius,
                     turboNotes: settings.turboNotes,
                     turboRate: settings.turboRate,
+                    externalPressed: gamepadPressed,
                   ),
                 ],
               ),
@@ -1261,6 +1352,9 @@ class _SingleButton extends StatefulWidget {
   final double size;
   final double? width;
 
+  /// 物理ゲームパッド起因で押下中の note (発光連動用、表示のみに使う)。
+  final ValueListenable<Set<int>>? externalPressed;
+
   const _SingleButton({
     required this.midi,
     required this.note,
@@ -1268,6 +1362,7 @@ class _SingleButton extends StatefulWidget {
     required this.color,
     required this.size,
     this.width,
+    this.externalPressed,
   });
 
   @override
@@ -1301,12 +1396,16 @@ class _SingleButtonState extends State<_SingleButton> {
       onTapDown: (_) => _press(),
       onTapUp: (_) => _release(),
       onTapCancel: () => _release(),
-      child: _ActionButtonView(
-        label: widget.label,
-        color: widget.color,
-        size: widget.size,
-        width: widget.width,
-        pressed: _pressed,
+      child: ValueListenableBuilder<Set<int>>(
+        valueListenable:
+            widget.externalPressed ?? const _EmptyNoteSetListenable(),
+        builder: (context, ext, _) => _ActionButtonView(
+          label: widget.label,
+          color: widget.color,
+          size: widget.size,
+          width: widget.width,
+          pressed: _pressed || ext.contains(widget.note),
+        ),
       ),
     );
   }
