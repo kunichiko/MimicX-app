@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'channel_mode.dart';
+import 'gamepad_input.dart';
 import 'l10n/app_localizations.dart';
 import 'midi_service.dart';
 import 'mode_scaffold.dart';
@@ -112,6 +113,19 @@ class AtariMode extends ChannelMode {
   @override
   String get id => 'joystick.atari';
 
+  /// 物理ゲームパッドの固定マッピング (十字キー/左スティック → 方向、
+  /// 下ボタン → A、右ボタン → B)。
+  static const Map<GamepadControl, int> _gamepadMapping = {
+    GamepadControl.up: MidiService.noteUp,
+    GamepadControl.down: MidiService.noteDown,
+    GamepadControl.left: MidiService.noteLeft,
+    GamepadControl.right: MidiService.noteRight,
+    GamepadControl.south: MidiService.noteA,
+    GamepadControl.east: MidiService.noteB,
+  };
+
+  GamepadNoteBinder? _gamepad;
+
   @override
   String label(BuildContext context) =>
       AppLocalizations.of(context)!.padModeAtari;
@@ -121,7 +135,18 @@ class AtariMode extends ChannelMode {
     await _settings.load();
     final result = await midi.setPadMode(0);
     if (!result.isOk) return AckStatus.label(result.status);
+    _gamepad ??= GamepadNoteBinder(
+      midi: midi,
+      settings: _settings,
+      mapping: _gamepadMapping,
+    );
     return null;
+  }
+
+  @override
+  Future<void> onExit(MidiService midi) async {
+    await _gamepad?.dispose();
+    _gamepad = null;
   }
 
   @override
@@ -135,6 +160,7 @@ class AtariMode extends ChannelMode {
 
   @override
   void dispose() {
+    _gamepad?.dispose();
     _settings.dispose();
     super.dispose();
   }
@@ -162,6 +188,25 @@ class Md6Mode extends ChannelMode {
   @override
   String get id => 'joystick.md6';
 
+  /// 物理ゲームパッドの固定マッピング。MD 6B の物理配置に合わせて
+  /// 下段 (X/A/B の横並び) → A/B/C、上段 (LB/Y/RB) → X/Y/Z とする。
+  static const Map<GamepadControl, int> _gamepadMapping = {
+    GamepadControl.up: MidiService.noteUp,
+    GamepadControl.down: MidiService.noteDown,
+    GamepadControl.left: MidiService.noteLeft,
+    GamepadControl.right: MidiService.noteRight,
+    GamepadControl.west: MidiService.noteA, // 左ボタン → A
+    GamepadControl.south: MidiService.noteB, // 下ボタン → B
+    GamepadControl.east: MidiService.noteC, // 右ボタン → C
+    GamepadControl.l1: MidiService.noteX,
+    GamepadControl.north: MidiService.noteY,
+    GamepadControl.r1: MidiService.noteZ,
+    GamepadControl.start: MidiService.noteStart,
+    GamepadControl.select: MidiService.noteMode,
+  };
+
+  GamepadNoteBinder? _gamepad;
+
   @override
   String label(BuildContext context) =>
       AppLocalizations.of(context)!.padModeMd6;
@@ -171,7 +216,18 @@ class Md6Mode extends ChannelMode {
     await _settings.load();
     final result = await midi.setPadMode(1);
     if (!result.isOk) return AckStatus.label(result.status);
+    _gamepad ??= GamepadNoteBinder(
+      midi: midi,
+      settings: _settings,
+      mapping: _gamepadMapping,
+    );
     return null;
+  }
+
+  @override
+  Future<void> onExit(MidiService midi) async {
+    await _gamepad?.dispose();
+    _gamepad = null;
   }
 
   @override
@@ -185,6 +241,7 @@ class Md6Mode extends ChannelMode {
 
   @override
   void dispose() {
+    _gamepad?.dispose();
     _settings.dispose();
     super.dispose();
   }

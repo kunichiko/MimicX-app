@@ -1,21 +1,27 @@
 PODS:
   - Flutter (1.0.0)
+  - gamepads_ios (0.1.1):
+    - Flutter
   - universal_ble (0.0.1):
     - Flutter
     - FlutterMacOS
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
+  - gamepads_ios (from `.symlinks/plugins/gamepads_ios/ios`)
   - universal_ble (from `.symlinks/plugins/universal_ble/darwin`)
 
 EXTERNAL SOURCES:
   Flutter:
     :path: Flutter
+  gamepads_ios:
+    :path: ".symlinks/plugins/gamepads_ios/ios"
   universal_ble:
     :path: ".symlinks/plugins/universal_ble/darwin"
 
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  gamepads_ios: c75c6d31377d275b0effb9174c619e2705678c09
   universal_ble: ff19787898040d721109c6324472e5dd4bc86adc
 
 PODFILE CHECKSUM: 9ba2bf8683de5cb4909dc7da2d92fd135d2092e3
