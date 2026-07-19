@@ -32,6 +32,22 @@ import 'package:gamepads/gamepads.dart';
 import 'joystick_settings.dart';
 import 'midi_service.dart';
 
+// ★一時デバッグ (コントローラー認識確認) — 検証後に削除。
+// Windows は GUI 起動だとコンソールが無いのでファイルにも書く。
+void _dbg(String msg) {
+  // ignore: avoid_print
+  print(msg);
+  if (Platform.isWindows) {
+    try {
+      final tmp = Platform.environment['TEMP'];
+      if (tmp != null) {
+        File('$tmp\\mimicx_gamepad.log')
+            .writeAsStringSync('$msg\n', mode: FileMode.append);
+      }
+    } catch (_) {}
+  }
+}
+
 /// 論理コントロール。ボタン名は Xbox 標準配置の物理位置 (south = 下ボタン = A)。
 /// Nintendo 系コントローラーでは刻印と位置が入れ替わるが、位置基準で統一する。
 enum GamepadControl {
@@ -76,6 +92,11 @@ class GamepadInput {
   static const double _releaseThreshold = 0.35;
 
   void start() {
+    // ★一時デバッグ (コントローラー認識確認) — 検証後に削除
+    Gamepads.list().then(
+      (list) => _dbg(
+          'GAMEPAD-LIST: ${list.map((g) => '${g.id}:${g.name}').toList()}'),
+    );
     _sub ??= Gamepads.events.listen(_onEvent);
   }
 
@@ -94,6 +115,8 @@ class GamepadInput {
   }
 
   void _onEvent(GamepadEvent e) {
+    // ★一時デバッグ (コントローラー認識確認) — 検証後に削除
+    _dbg('GAMEPAD-RAW [${e.gamepadId}] ${e.type.name} ${e.key} = ${e.value}');
     if (Platform.isAndroid) {
       _decodeAndroid(e);
     } else if (Platform.isWindows) {
@@ -339,6 +362,8 @@ class GamepadNoteBinder {
   bool _disposed = false;
 
   void _onControl(GamepadControl control, bool pressed) {
+    // ★一時デバッグ (コントローラー認識確認) — 検証後に削除
+    _dbg('GAMEPAD-CTRL ${control.name} ${pressed ? "press" : "release"}');
     final note = mapping[control];
     if (note == null) return;
     if (pressed) {
