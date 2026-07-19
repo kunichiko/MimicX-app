@@ -45,10 +45,10 @@ packages:
     dependency: transitive
     description:
       name: characters
-      sha256: f71061c654a3380576a52b451dd5532377954cf9dbd272a78fc8479606670803
+      sha256: faf38497bda5ead2a8c7615f4f7939df04333478bf32e4173fcb06d428b5716b
       url: "https://pub.dev"
     source: hosted
-    version: "1.4.0"
+    version: "1.4.1"
   charset:
     dependency: "direct main"
     description:
@@ -215,6 +215,62 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  gamepads:
+    dependency: "direct main"
+    description:
+      name: gamepads
+      sha256: "23d592bb80b80e6d47eec82b8b9aff85011aeb93e7a1815c9d973e183c91c289"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.8"
+  gamepads_android:
+    dependency: transitive
+    description:
+      name: gamepads_android
+      sha256: "8d8430deab5c35bafee3124bec0db19d3df605bb8f42da9ba188e826fda551e2"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.8+2"
+  gamepads_darwin:
+    dependency: transitive
+    description:
+      name: gamepads_darwin
+      sha256: a7668dc17f2e4b95c29c54e961c3ef6e34e3997718383e96dd0bdf5a5c3b03c8
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.2+4"
+  gamepads_ios:
+    dependency: transitive
+    description:
+      name: gamepads_ios
+      sha256: "514a37d4b1b17bf47fe911ee1b750eca6be2b8abbdb71f200b9ad3186014d413"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.3+3"
+  gamepads_linux:
+    dependency: transitive
+    description:
+      name: gamepads_linux
+      sha256: "80bf70df6da6185926e6d8b2feb98e725e6fe99290afafaea91dba471e8c1c1e"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.2"
+  gamepads_platform_interface:
+    dependency: transitive
+    description:
+      name: gamepads_platform_interface
+      sha256: "9ddb3b61c780284a17739d759929d2e32b912d12d9145ee493ffe2b43fc6256a"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.3"
+  gamepads_windows:
+    dependency: transitive
+    description:
+      name: gamepads_windows
+      sha256: "454320638b8ad73890530545a2f788d83a752471010edade0f00b1636c1b382d"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.4+1"
   http:
     dependency: transitive
     description:
@@ -259,26 +315,26 @@ packages:
     dependency: transitive
     description:
       name: leak_tracker
-      sha256: "6bb818ecbdffe216e81182c2f0714a2e62b593f4a4f13098713ff1685dfb6ab0"
+      sha256: "33e2e26bdd85a0112ec15400c8cbffea70d0f9c3407491f672a2fad47915e2de"
       url: "https://pub.dev"
     source: hosted
-    version: "10.0.9"
+    version: "11.0.2"
   leak_tracker_flutter_testing:
     dependency: transitive
     description:
       name: leak_tracker_flutter_testing
-      sha256: f8b613e7e6a13ec79cfdc0e97638fddb3ab848452eff057653abd3edba760573
+      sha256: "1dbc140bb5a23c75ea9c4811222756104fbcd1a27173f0c34ca01e16bea473c1"
       url: "https://pub.dev"
     source: hosted
-    version: "3.0.9"
+    version: "3.0.10"
   leak_tracker_testing:
     dependency: transitive
     description:
       name: leak_tracker_testing
-      sha256: "6ba465d5d76e67ddf503e1161d1f4a6bc42306f9d66ca1e8f079a47290fb06d3"
+      sha256: "8d5a2d49f4a66b49744b23b018848400d23e54caf9463f4eb20df3eb8acb2eb1"
       url: "https://pub.dev"
     source: hosted
-    version: "3.0.1"
+    version: "3.0.2"
   lints:
     dependency: transitive
     description:
@@ -299,26 +355,26 @@ packages:
     dependency: transitive
     description:
       name: matcher
-      sha256: dc58c723c3c24bf8d3e2d3ad3f2f9d7bd9cf43ec6feaa64181775e60190153f2
+      sha256: dc0b7dc7651697ea4ff3e69ef44b0407ea32c487a39fff6a4004fa585e901861
       url: "https://pub.dev"
     source: hosted
-    version: "0.12.17"
+    version: "0.12.19"
   material_color_utilities:
     dependency: transitive
     description:
       name: material_color_utilities
-      sha256: f7142bb1154231d7ea5f96bc7bde4bda2a0945d2806bb11670e30b850d56bdec
+      sha256: "9c337007e82b1889149c82ed242ed1cb24a66044e30979c44912381e9be4c48b"
       url: "https://pub.dev"
     source: hosted
-    version: "0.11.1"
+    version: "0.13.0"
   meta:
     dependency: transitive
     description:
       name: meta
-      sha256: e3641ec5d63ebf0d9b41bd43201a66e3fc79a65db5f61fc181f04cd27aab950c
+      sha256: "1741988757a65eb6b36abe716829688cf01910bbf91c34354ff7ec1c3de2b349"
       url: "https://pub.dev"
     source: hosted
-    version: "1.16.0"
+    version: "1.18.0"
   midi:
     dependency: transitive
     description:
@@ -512,10 +568,10 @@ packages:
     dependency: transitive
     description:
       name: test_api
-      sha256: fb31f383e2ee25fbbfe06b40fe21e1e458d14080e3c67e7ba0acfde4df4e0bbd
+      sha256: "949a932224383300f01be9221c39180316445ecb8e7547f70a41a35bf421fb9e"
       url: "https://pub.dev"
     source: hosted
-    version: "0.7.4"
+    version: "0.7.11"
   tuple:
     dependency: transitive
     description:
@@ -544,10 +600,10 @@ packages:
     dependency: transitive
     description:
       name: vector_math
-      sha256: "80b3257d1492ce4d091729e3a67a60407d227c27241d6927be0130c98e741803"
+      sha256: d530bd74fea330e6e364cda7a85019c434070188383e1cd8d9777ee586914c5b
       url: "https://pub.dev"
     source: hosted
-    version: "2.1.4"
+    version: "2.2.0"
   vm_service:
     dependency: transitive
     description:
@@ -597,5 +653,5 @@ packages:
     source: hosted
     version: "3.1.3"
 sdks:
-  dart: ">=3.8.1 <4.0.0"
-  flutter: ">=3.29.0"
+  dart: ">=3.10.0-0 <4.0.0"
+  flutter: ">=3.35.0"

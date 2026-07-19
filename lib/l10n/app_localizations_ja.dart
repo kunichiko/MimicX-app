@@ -180,4 +180,10 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get aboutCopyright => '© 2026 Kunihiko Ohnaka';
+
+  @override
+  String get switchToKeyboard => 'キーボード画面へ切替';
+
+  @override
+  String get switchToJoystick => 'ジョイスティック画面へ切替';
 }

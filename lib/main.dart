@@ -6,6 +6,8 @@ import 'about_page.dart';
 import 'device_nickname_store.dart';
 import 'device_rename_page.dart';
 import 'l10n/app_localizations.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'midi_service.dart';
 import 'protocol.dart';
 import 'joystick_page.dart';
@@ -265,9 +267,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _openDevice(MidiDeviceInfo device) async {
     if (_opening) return;
     setState(() => _opening = true);
-    bool success;
+    bool success = false;
     try {
-      success = await _midi.connect(device);
+      // 接続 → 生存確認 (probe)。Android は接続直後の write 詰まり (midi_service の
+      // probeConnection コメント参照) を引くことがあり、その接続は identity が
+      // キャッシュ済みだと無検査でセッションに入って HB 全滅 → 即 CONN_LOST になる。
+      // probe が無応答なら接続からやり直す。
+      for (int i = 0; i < 3 && mounted; i++) {
+        success = await _midi.connect(device);
+        if (!success) continue;
+        if (await _midi.probeConnection()) break;
+        _midi.disconnect();
+        success = false;
+        await Future.delayed(const Duration(milliseconds: 300));
+      }
       if (success && mounted) {
         // 既存の identity がなければ識別を試みる
         device.identity ??= await _midi.identifyDevice();
@@ -359,11 +372,74 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       return true;
     }).toList();
 
+    // Combined デバイス (joystick + x68k キーボード/マウス) はチャンネル排他
+    // 選択ではなく同時セッションで開く。ジョイスティック/キーボード両機能が
+    // 常時アクティブで、AppBar のボタンで画面を行き来できる。
+    final joyCh = pickerChannels.cast<ChannelAssignment?>().firstWhere(
+          (c) => c!.hidType == HidType.joystick,
+          orElse: () => null,
+        );
+    if (hasX68kCombo && joyCh != null) {
+      _runCombinedSession(device, joyCh, x68kKb, x68kMouse);
+      return;
+    }
+
     if (pickerChannels.length == 1) {
       _routeToChannel(device, pickerChannels.first);
     } else {
       _showChannelPicker(device, pickerChannels);
     }
+  }
+
+  /// Combined デバイスの同時セッション。キーボード⇄ジョイスティック画面を
+  /// AppBar のボタンで行き来し (pop result 'SWITCH_*')、その間 MIDI 接続は
+  /// 維持される。最後に表示していた画面を記憶して次回の初期画面にする。
+  void _runCombinedSession(
+    MidiDeviceInfo device,
+    ChannelAssignment joyCh,
+    ChannelAssignment kbCh,
+    ChannelAssignment mouseCh,
+  ) async {
+    final deviceName = _displayNameFor(device);
+    final prefs = await SharedPreferences.getInstance();
+    var screen = prefs.getString('combined.lastScreen') ?? 'keyboard';
+
+    String? popResult;
+    while (true) {
+      final Widget page;
+      if (screen == 'joystick') {
+        page = JoystickPage(
+          midi: _midi,
+          channel: joyCh.midiChannel,
+          deviceName: deviceName,
+          onSwitchToKeyboard: () =>
+              Navigator.of(context).pop('SWITCH_KEYBOARD'),
+        );
+      } else {
+        page = X68kKeyboardPage(
+          midi: _midi,
+          channel: kbCh.midiChannel,
+          mouseChannel: mouseCh.midiChannel,
+          deviceName: deviceName,
+          serial: device.identity?.serial,
+          enableGamepad: true,
+          onSwitchToJoystick: () =>
+              Navigator.of(context).pop('SWITCH_JOYSTICK'),
+        );
+      }
+      if (!mounted) return;
+      popResult = await Navigator.of(context)
+          .push<String?>(MaterialPageRoute(builder: (_) => page));
+      if (popResult == 'SWITCH_KEYBOARD') {
+        screen = 'keyboard';
+      } else if (popResult == 'SWITCH_JOYSTICK') {
+        screen = 'joystick';
+      } else {
+        break; // 戻る or CONN_LOST → セッション終了
+      }
+      await prefs.setString('combined.lastScreen', screen);
+    }
+    await _finishSession(popResult);
   }
 
   void _routeToChannel(MidiDeviceInfo device, ChannelAssignment ch) async {
@@ -404,9 +480,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // 操作画面は HB 失敗時に 'CONN_LOST' を pop result で返す。
     final popResult =
         await Navigator.of(context).push<String?>(MaterialPageRoute(builder: (_) => page!));
-    // Navigator.pop の Future はページ dispose より早く解決されるので、page 内で
-    // sendDisconnect しても USB が先に閉じてしまう (= デバイスに届かない)。
-    // ここで明示的に「HB 停止 → DISCONNECT 送信 → TX フラッシュ → USB close」する。
+    await _finishSession(popResult);
+  }
+
+  /// 操作画面から戻った後の共通後処理。
+  /// Navigator.pop の Future はページ dispose より早く解決されるので、page 内で
+  /// sendDisconnect しても USB が先に閉じてしまう (= デバイスに届かない)。
+  /// ここで明示的に「HB 停止 → DISCONNECT 送信 → TX フラッシュ → USB close」する。
+  Future<void> _finishSession(String? popResult) async {
     _midi.stopHeartBeat();
     _midi.sendDisconnect();
     await Future.delayed(const Duration(milliseconds: 100));

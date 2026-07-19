@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'channel_mode.dart';
 import 'l10n/app_localizations.dart';
+import 'gamepad_input.dart';
 import 'midi_service.dart';
 import 'mode_scaffold.dart';
 import 'orientation_helper.dart';
@@ -42,6 +43,15 @@ class X68kKeyboardPage extends StatefulWidget {
   /// null/空なら永続化なし (in-memory only)。
   final String? serial;
 
+  /// Combined デバイスの同時セッションでジョイスティック画面へ切り替えるボタンを
+  /// 表示する。null なら非表示 (従来どおり単機能ページ)。
+  final VoidCallback? onSwitchToJoystick;
+
+  /// true ならこの画面の表示中も物理ゲームパッド → ジョイスティックチャンネルの
+  /// 入力を有効にする (Combined デバイスの同時セッション用)。マッピング/連射は
+  /// 直前に選択されていたジョイスティックモード (ATARI/MD6) に従う。
+  final bool enableGamepad;
+
   const X68kKeyboardPage({
     super.key,
     required this.midi,
@@ -49,6 +59,8 @@ class X68kKeyboardPage extends StatefulWidget {
     this.mouseChannel,
     this.deviceName,
     this.serial,
+    this.onSwitchToJoystick,
+    this.enableGamepad = false,
   });
 
   @override
@@ -61,9 +73,22 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
   late final X68kKeyboardSharedState _shared;
   late final List<ChannelMode> _modes;
 
+  /// enableGamepad 時のゲームパッドセッション (非同期生成)。
+  PersistedGamepadSession? _gamepadSession;
+  bool _gamepadDisposed = false;
+
   @override
   void initState() {
     super.initState();
+    if (widget.enableGamepad) {
+      PersistedGamepadSession.create(widget.midi).then((session) {
+        if (_gamepadDisposed) {
+          session.dispose();
+        } else {
+          _gamepadSession = session;
+        }
+      });
+    }
     // 向きは各モードの onEnter で制御する (Standard は landscape 固定、
     // LineInput は unlock で任意の向き許可)。
     _shared = X68kKeyboardSharedState(serial: widget.serial);
@@ -118,6 +143,9 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
 
   @override
   void dispose() {
+    _gamepadDisposed = true;
+    _gamepadSession?.dispose();
+    _gamepadSession = null;
     // HB だけ早めに止めておく (joystick_page と同じ理由)。DISCONNECT 送信 +
     // USB close は親 (main.dart) が Navigator.push の await 後にまとめて行う。
     widget.midi.stopHeartBeat();
@@ -139,6 +167,14 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
       midi: widget.midi,
       modes: _modes,
       persistenceKey: 'x68k_keyboard.selectedMode',
+      extraActions: [
+        if (widget.onSwitchToJoystick != null)
+          IconButton(
+            icon: const Icon(Icons.sports_esports),
+            tooltip: AppLocalizations.of(context)!.switchToJoystick,
+            onPressed: widget.onSwitchToJoystick,
+          ),
+      ],
     );
   }
 }

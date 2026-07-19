@@ -240,6 +240,30 @@ class MidiService {
     }
   }
 
+  /// 接続の生存確認。HEART_BEAT を 1 発送って ACK が返るかを確かめる。
+  ///
+  /// Android の BluetoothMidiService はサービス探索 + CCCD 書込完了前の write を
+  /// 黙って捨てた上、内部エンコーダ (BluetoothPacketEncoder) の書き込み完了フラグが
+  /// 立ったままになり **その接続の以降の全送信が沈黙する**。connect() の固定待ち
+  /// (700ms) がレースに負けた「詰まり接続」をここで検出し、呼び出し側が接続を
+  /// やり直せるようにする (再接続でエンコーダは作り直されて復活する)。
+  Future<bool> probeConnection({int attempts = 3}) async {
+    for (int i = 0; i < attempts; i++) {
+      final reqId = _reqIdAllocator.allocate();
+      final result = await _sendAndWait(
+        reqId: reqId,
+        sysex: SysExBuilder.heartBeat(reqId),
+        timeout: const Duration(milliseconds: 600),
+      );
+      // ACK が返れば (status が何であれ) 送受信経路は生きている
+      if (result.status != AckStatus.genericError) return true;
+      if (i < attempts - 1) {
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
+    }
+    return false;
+  }
+
   /// IDENTIFY_REQUEST を送信し、レスポンスを待つ。
   ///
   /// USB-MIDI スタックが過渡的に応答を取りこぼすことがあるため、

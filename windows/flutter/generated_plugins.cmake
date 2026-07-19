@@ -4,6 +4,7 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   device_manager
+  gamepads_windows
   universal_ble
 )
 

@@ -50,6 +50,11 @@ dependencies:
     sdk: flutter
   intl: any
   package_info_plus: ^8.0.0
+  # ゲームパッド入力。0.1.9+ は Windows 実装が GameInput API になり
+  # gameinput.dll へのロード時リンクが入る (Windows 10 だと DLL 不在で
+  # アプリごと起動不能になり得る + ビルドに Windows SDK 26100+ が必要) ため、
+  # winmm ベースの 0.1.8 に固定する。key の正規化は lib/gamepad_input.dart で自前実装
+  gamepads: 0.1.8
 
 dependency_overrides:
   # Windows: flutter_midi_command_windows 0.3.0 は短い channel message を
