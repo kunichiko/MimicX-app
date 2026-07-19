@@ -214,6 +214,17 @@ class MidiService {
       //   ため、前回セッションで押されたままの note などが残っている可能性がある
       // - proto 0.4 (旧版) でも追加バイトは無視されるので安全
       // ACK は待たない (旧版は ACK を返さないので待つと無駄)。
+      //
+      // BLE は接続完了からサービス探索 + CCCD 書込が終わるまで (実測 ~320-500ms) の
+      // write が届かない。特に Android 10/11 は準備前の write を OS の
+      // BluetoothMidiService が黙って捨てた上、BluetoothPacketEncoder の
+      // mWritePending が立ったまま writeComplete() が呼ばれず、**その接続の以降の
+      // 全送信が恒久的にブロックされる** (再接続でも OS がエンコーダを再利用するため
+      // 回復しない = 必ず「非対応」になる)。準備完了を知る API はないので、最初の
+      // write の前に一拍置いて回避する (SO-01M / Android 11 実機で解消を確認済み)。
+      if (deviceInfo.type == 'BLE') {
+        await Future.delayed(const Duration(milliseconds: 700));
+      }
       sendSysEx(SysExBuilder.reset(0));
       return true;
     } catch (e) {
