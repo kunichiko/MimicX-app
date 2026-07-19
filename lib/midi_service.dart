@@ -197,9 +197,17 @@ class MidiService {
       // まま port 側だけ閉じてしまうケースが観測された) と connectToDevice が
       // 空回りすることがあるので、明示的に一度切ってから繋ぎ直す。
       // 接続中でない場合の例外は無視する。
-      try {
-        _midiCommand.disconnectDevice(deviceInfo.device);
-      } catch (_) {}
+      //
+      // ただし BLE では行わない: Windows (universal_ble) ではこの disconnect の
+      // 非同期 unsubscribe が ~500ms 遅れて新しいセッションに着弾し、確立した
+      // ばかりの CCCD (notify 購読) を消してしまう競合を実測で確認した
+      // (→ IDENTIFY 応答が届かず「非対応」になる)。iOS の port 残留対策は
+      // USB 接続の症状なので BLE を除外しても問題ない。
+      if (deviceInfo.type != 'BLE') {
+        try {
+          _midiCommand.disconnectDevice(deviceInfo.device);
+        } catch (_) {}
+      }
       // 前回 subscription が残っている可能性もあるので明示的にキャンセル
       await _rxSubscription?.cancel();
       _rxSubscription = null;
