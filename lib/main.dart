@@ -643,7 +643,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       child: Row(
                         children: [
                           Icon(
-                            isMimicX ? Icons.check_circle : Icons.usb,
+                            isMimicX
+                                ? Icons.check_circle
+                                : (device.isBle ? Icons.bluetooth : Icons.usb),
                             color: isMimicX ? Colors.green : Colors.grey,
                             size: 32,
                           ),
@@ -652,11 +654,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  _displayNameFor(device),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                // トランスポートバッジ: 同一実機が USB / BLE の両経路で
+                                // 2 枚並んだとき (S3 ブリッジ等) の見分け用
+                                Row(
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        _displayNameFor(device),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Icon(
+                                      device.isBle ? Icons.bluetooth : Icons.usb,
+                                      size: 16,
+                                      color: Colors.grey,
+                                    ),
+                                  ],
                                 ),
                                 if (identity != null) ...[
                                   const SizedBox(height: 4),
