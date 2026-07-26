@@ -15,14 +15,38 @@ Mimic X appは、Flutterで作られたマルチプラットフォームアプ�
 ## 機能
 
 - ジョイスティックモード: 画面上の仮想ジョイスティックで操作
-  - ATARI 2 ボタン互換
+  - ATARI 2 ボタン互換 (TOWNS パッドの RUN/SELECT にも対応、設定でオフ可)
   - メガドライブ 6 ボタンファイティングパッド互換
+  - リブルラブル (XPD-1LR) 互換 / MSX マウス
 - キーボードモード: レトロPCのキーボードレイアウトを再現し、タイプ入力が可能
 - レトロPC本体からの信号受信（キーボードLED制御など）に対応
+- 物理ゲームコントローラー対応 (下記)
+
+### 物理ゲームコントローラー
+
+スマホ/PC に接続したゲームコントローラーで、ジョイスティックモード
+(ATARI / MD 6B) を直接操作できる (キーボード画面を開いている間も有効)。
+
+- 十字キー / 左スティック → 方向、ボタンは Xbox 標準配置基準でマッピング
+- ATARI モードでは Start / Back → TOWNS パッドの RUN / SELECT
+  (設定の「TOWNSパッド機能」でオフにできる)
+- 連射 (turbo) 設定は画面ボタンと共通
+
+動作確認済みの組み合わせ:
+
+| プラットフォーム | コントローラー | 接続 |
+|---|---|---|
+| macOS | Nintendo Switch Pro Controller | Bluetooth |
+| iOS (iPhone) | Nintendo Switch Pro Controller | Bluetooth |
+| Windows | ShanWan 汎用ゲームパッド | USB |
+
+注意: macOS / iOS は GCController フレームワークが認識するコントローラーのみ
+対応 (Xbox / PlayStation / Switch Pro など。汎用 DirectInput パッドは認識され
+ない)。Windows / Android は汎用パッドも動作する。
 
 ## 開発環境
 
-Flutter SDK のバージョンは [`.fvmrc`](./.fvmrc) で固定 (現在 3.38.5)。
+Flutter SDK のバージョンは [`.fvmrc`](./.fvmrc) で固定 (現在 3.44.0)。
 [FVM](https://fvm.app/) を使ってバージョンを揃えるのが推奨。
 
 ```sh
