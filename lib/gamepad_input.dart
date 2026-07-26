@@ -292,13 +292,18 @@ class GamepadInput {
     for (final s in _buttonState.values) {
       next.addAll(s);
     }
-    for (final c in next.difference(_merged)) {
-      _merged.add(c);
-      onControl(c, true);
-    }
+    // release を press より先に通知する。1 イベントで方向が反転したとき
+    // (例: 十字キー左→右が中立サンプルなしで届く)、press 先行だと
+    // NoteOn(右) → NoteOff(左) の順で送信され、受信側で一瞬「左右同時押し」
+    // になる。ATARI 出力先が TOWNS パッドの RUN (左右同時) / SELECT (上下同時)
+    // と解釈して誤発動するため、必ず反対方向の解放を先に流す。
     for (final c in _merged.difference(next).toList()) {
       _merged.remove(c);
       onControl(c, false);
+    }
+    for (final c in next.difference(_merged)) {
+      _merged.add(c);
+      onControl(c, true);
     }
   }
 }
