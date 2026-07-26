@@ -320,6 +320,7 @@ class GamepadNoteBinder {
     required this.settings,
     required this.mapping,
     this.pressedNotes,
+    this.noteGate,
   }) {
     _lastTurboNotes = settings.turboNotes;
     _lastTurboRate = settings.turboRate;
@@ -335,6 +336,12 @@ class GamepadNoteBinder {
   /// パッド起因で論理押下中の note 集合を UI へ通知する (画面ボタンの発光連動用)。
   /// null なら通知しない。
   final ValueNotifier<Set<int>>? pressedNotes;
+
+  /// note の押下を許可するかの動的ゲート (null なら全許可)。
+  /// 設定トグル (例: TOWNS パッド機能) で一部 note を無効化するのに使う。
+  /// press のみゲートし release は素通しにすることで、押下中にゲートが
+  /// 閉じても note が押しっぱなしで残らないようにしている。
+  final bool Function(int note)? noteGate;
 
   late final GamepadInput _input;
 
@@ -354,6 +361,7 @@ class GamepadNoteBinder {
     final note = mapping[control];
     if (note == null) return;
     if (pressed) {
+      if (noteGate != null && !noteGate!(note)) return;
       if (!_activeNotes.add(note)) return;
       midi.joystickPress(note);
       if (settings.isTurbo(note)) _turboPressed[note] = true;
@@ -445,6 +453,8 @@ class GamepadNoteBinder {
 // ---------------------------------------------------------------------------
 
 /// ATARI 互換モード: 十字キー/左スティック → 方向、下ボタン → A、右ボタン → B。
+/// Start/Back は TOWNS パッドの RUN/SELECT (設定の「TOWNSパッド機能」が ON のとき
+/// のみ有効 — noteGate 参照)。
 const Map<GamepadControl, int> atariGamepadMapping = {
   GamepadControl.up: MidiService.noteUp,
   GamepadControl.down: MidiService.noteDown,
@@ -452,7 +462,16 @@ const Map<GamepadControl, int> atariGamepadMapping = {
   GamepadControl.right: MidiService.noteRight,
   GamepadControl.south: MidiService.noteA,
   GamepadControl.east: MidiService.noteB,
+  GamepadControl.start: MidiService.noteRun,
+  GamepadControl.select: MidiService.noteSelect,
 };
+
+/// TOWNS パッド機能のトグルに応じて RUN/SELECT ノートをゲートする述語を作る。
+/// ATARI モードの GamepadNoteBinder に渡す。
+bool Function(int note) townsPadNoteGate(JoystickSettings settings) =>
+    (note) =>
+        (note != MidiService.noteRun && note != MidiService.noteSelect) ||
+        settings.townsPad;
 
 /// MD 6B モード: 下段 (X/A/B) → A/B/C、上段 (LB/Y/RB) → X/Y/Z、
 /// Start → START、Back → MODE。
@@ -500,6 +519,7 @@ class PersistedGamepadSession {
       settings: settings,
       mapping: isMd6 ? md6GamepadMapping : atariGamepadMapping,
       pressedNotes: pressedNotes,
+      noteGate: isMd6 ? null : townsPadNoteGate(settings),
     );
     return PersistedGamepadSession._(binder, settings);
   }

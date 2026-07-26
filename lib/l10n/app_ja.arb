@@ -34,6 +34,8 @@
   "turboToggleSection": "連射 ON/OFF",
   "turboToggleHelp": "有効にしたボタンは押している間、上の連射速度で press / release を繰り返す。",
   "turboBadge": "連",
+  "townsPadLabel": "TOWNSパッド機能 (RUN/SELECT)",
+  "townsPadHelp": "画面に RUN / SELECT ボタンを表示し、ゲームパッドの Start / Back を割り当てる。RUN は左右同時、SELECT は上下同時としてターゲット機に出力される (ファームウェア v1.1.0 以降)。",
   "x68kKeyboardTitle": "X68000 Keyboard",
   "deviceRenameTooltip": "名前を変更",
   "deviceRenameTitle": "アダプタの名前を変更",

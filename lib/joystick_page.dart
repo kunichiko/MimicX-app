@@ -146,6 +146,8 @@ class AtariMode extends ChannelMode {
       settings: _settings,
       mapping: atariGamepadMapping,
       pressedNotes: _gamepadPressed,
+      // TOWNS パッド機能 OFF のときは Start/Back → RUN/SELECT を無効化
+      noteGate: townsPadNoteGate(_settings),
     );
     return null;
   }
@@ -168,8 +170,11 @@ class AtariMode extends ChannelMode {
   }
 
   @override
-  Widget buildSettings(BuildContext context) =>
-      _SettingsSheet(settings: _settings, turboCandidates: _turboCandidates);
+  Widget buildSettings(BuildContext context) => _SettingsSheet(
+        settings: _settings,
+        turboCandidates: _turboCandidates,
+        showTownsPad: true,
+      );
 
   @override
   void dispose() {
@@ -863,28 +868,56 @@ class _AtariLayout extends StatelessWidget {
       ),
     ];
 
-    return Center(
-      child: FractionallySizedBox(
-        widthFactor: 0.8,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            _DPad(
-              midi: midi,
-              deadZoneRatio: settings.deadZoneRatio,
-              externalPressed: gamepadPressed,
+    return SafeArea(
+      child: Stack(
+        children: [
+          // TOWNS パッド RUN/SELECT (中央、単独タップ)。
+          // 実機の FM TOWNS パッドと同じく SELECT / RUN を中央に横並びで置く。
+          if (settings.townsPad)
+            Align(
+              alignment: Alignment.center,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _SingleButton(
+                    midi: midi, note: MidiService.noteSelect, label: 'SELECT',
+                    color: Colors.grey, size: 36, width: 84,
+                    externalPressed: gamepadPressed,
+                  ),
+                  const SizedBox(width: 12),
+                  _SingleButton(
+                    midi: midi, note: MidiService.noteRun, label: 'RUN',
+                    color: Colors.grey, size: 36, width: 68,
+                    externalPressed: gamepadPressed,
+                  ),
+                ],
+              ),
             ),
-            _ButtonGroup(
-              midi: midi,
-              buttons: buttons,
-              groupSize: const Size(groupW, btnSize),
-              extraHitRadius: settings.extraHitRadius,
-              turboNotes: settings.turboNotes,
-              turboRate: settings.turboRate,
-              externalPressed: gamepadPressed,
+          Center(
+            child: FractionallySizedBox(
+              widthFactor: 0.8,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _DPad(
+                    midi: midi,
+                    deadZoneRatio: settings.deadZoneRatio,
+                    externalPressed: gamepadPressed,
+                  ),
+                  _ButtonGroup(
+                    midi: midi,
+                    buttons: buttons,
+                    groupSize: const Size(groupW, btnSize),
+                    extraHitRadius: settings.extraHitRadius,
+                    turboNotes: settings.turboNotes,
+                    turboRate: settings.turboRate,
+                    externalPressed: gamepadPressed,
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1404,10 +1437,13 @@ class _SettingsSheet extends StatefulWidget {
   final JoystickSettings settings;
   /// このモードで連射対象になり得るボタン (FilterChip の表示順)。
   final List<({int note, String label})> turboCandidates;
+  /// TOWNS パッド機能トグルを表示するか (ATARI モードのみ true)。
+  final bool showTownsPad;
 
   const _SettingsSheet({
     required this.settings,
     required this.turboCandidates,
+    this.showTownsPad = false,
   });
 
   @override
@@ -1539,6 +1575,20 @@ class _SettingsSheetState extends State<_SettingsSheet> {
               l.turboToggleHelp,
               style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
+
+            if (widget.showTownsPad) ...[
+              const SizedBox(height: 16),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(l.townsPadLabel),
+                value: widget.settings.townsPad,
+                onChanged: (v) => widget.settings.setTownsPad(v),
+              ),
+              Text(
+                l.townsPadHelp,
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
           ],
         ),
       ),

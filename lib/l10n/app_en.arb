@@ -121,6 +121,8 @@
   "@turboBadge": {
     "description": "Short badge shown on a button when turbo is enabled"
   },
+  "townsPadLabel": "TOWNS pad feature (RUN/SELECT)",
+  "townsPadHelp": "Shows RUN / SELECT buttons on screen and maps the gamepad Start / Back buttons to them. RUN asserts left+right and SELECT asserts up+down on the target machine (firmware v1.1.0+).",
   "x68kKeyboardTitle": "X68000 Keyboard",
   "deviceRenameTooltip": "Rename",
   "deviceRenameTitle": "Rename adapter",

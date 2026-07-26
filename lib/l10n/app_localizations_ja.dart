@@ -132,6 +132,13 @@ class AppLocalizationsJa extends AppLocalizations {
   String get turboBadge => '連';
 
   @override
+  String get townsPadLabel => 'TOWNSパッド機能 (RUN/SELECT)';
+
+  @override
+  String get townsPadHelp =>
+      '画面に RUN / SELECT ボタンを表示し、ゲームパッドの Start / Back を割り当てる。RUN は左右同時、SELECT は上下同時としてターゲット機に出力される (ファームウェア v1.1.0 以降)。';
+
+  @override
   String get x68kKeyboardTitle => 'X68000 Keyboard';
 
   @override

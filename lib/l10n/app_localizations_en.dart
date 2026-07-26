@@ -136,6 +136,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get turboBadge => 'T';
 
   @override
+  String get townsPadLabel => 'TOWNS pad feature (RUN/SELECT)';
+
+  @override
+  String get townsPadHelp =>
+      'Shows RUN / SELECT buttons on screen and maps the gamepad Start / Back buttons to them. RUN asserts left+right and SELECT asserts up+down on the target machine (firmware v1.1.0+).';
+
+  @override
   String get x68kKeyboardTitle => 'X68000 Keyboard';
 
   @override

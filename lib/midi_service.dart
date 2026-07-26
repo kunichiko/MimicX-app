@@ -96,6 +96,11 @@ class MidiService {
   static const int noteDown2 = 16;
   static const int noteLeft2 = 17;
   static const int noteRight2 = 18;
+  // TOWNS パッド RUN/SELECT (protocol 0.9, ATARI モードのみ)。
+  // RUN = 左右同時アサート、SELECT = 上下同時アサート (firmware v1.1.0+ が解釈。
+  // 旧ファームは未知ノートとして無視するので送っても実害はない)。
+  static const int noteRun = 21;
+  static const int noteSelect = 22;
 
   // OS 内蔵で Mimic X になり得ないバーチャル MIDI デバイス。
   // Windows の "Microsoft GS Wavetable Synth" は出力専用ソフトシンセで

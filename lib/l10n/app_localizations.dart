@@ -302,6 +302,18 @@ abstract class AppLocalizations {
   /// **'T'**
   String get turboBadge;
 
+  /// No description provided for @townsPadLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'TOWNS pad feature (RUN/SELECT)'**
+  String get townsPadLabel;
+
+  /// No description provided for @townsPadHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Shows RUN / SELECT buttons on screen and maps the gamepad Start / Back buttons to them. RUN asserts left+right and SELECT asserts up+down on the target machine (firmware v1.1.0+).'**
+  String get townsPadHelp;
+
   /// No description provided for @x68kKeyboardTitle.
   ///
   /// In en, this message translates to:

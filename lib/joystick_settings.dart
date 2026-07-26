@@ -19,6 +19,7 @@ class JoystickSettings extends ChangeNotifier {
   String get _kExtraHitRadius => '$prefix.extraHitRadius';
   String get _kTurboNotes => '$prefix.turboNotes';
   String get _kTurboRate => '$prefix.turboRate';
+  String get _kTownsPad => '$prefix.townsPad';
 
   // v1.0.5 までの旧キー (どのモードでもなく単一インスタンスだった時代)。
   // 既存ユーザの設定を引き継ぐため、新キーが無い場合のフォールバックに使う。
@@ -42,10 +43,16 @@ class JoystickSettings extends ChangeNotifier {
   double _extraHitRadius = defaultExtraHitRadius;
   Set<int> _turboNotes = const <int>{};
   double _turboRate = defaultTurboRate;
+  bool _townsPad = true;
 
   bool get loaded => _loaded;
   double get deadZoneRatio => _deadZoneRatio;
   double get extraHitRadius => _extraHitRadius;
+
+  /// TOWNS パッド機能 (ATARI モードのみ意味を持つ)。ON のとき RUN/SELECT ボタンを
+  /// UI に表示し、ゲームパッドの Start/Back を RUN/SELECT ノートにマップする。
+  /// 旧ファームはノートを無視するだけなのでデフォルト ON。
+  bool get townsPad => _townsPad;
 
   /// 連射が有効になっている note 番号の集合 (読み取り専用ビュー)。
   Set<int> get turboNotes => Set.unmodifiable(_turboNotes);
@@ -72,6 +79,8 @@ class JoystickSettings extends ChangeNotifier {
         prefs.getStringList(_legacyTurboNotes) ??
         const <String>[];
     _turboNotes = notes.map(int.parse).toSet();
+
+    _townsPad = prefs.getBool(_kTownsPad) ?? true;
 
     _loaded = true;
     notifyListeners();
@@ -115,5 +124,13 @@ class JoystickSettings extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_kTurboRate, v);
+  }
+
+  Future<void> setTownsPad(bool v) async {
+    if (_townsPad == v) return;
+    _townsPad = v;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kTownsPad, v);
   }
 }
