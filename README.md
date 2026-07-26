@@ -60,23 +60,17 @@ fvm flutter run
 VS Code / Android Studio から開く場合は Flutter SDK の path を `.fvm/flutter_sdk`
 に向けるか、シェルで `fvm flutter ...` を使う。
 
-## 開発フロー (git-flow ベース)
+## 開発フロー (main 一本 + タグ起点リリース)
 
-ブランチ運用は [A successful Git branching model (Vincent Driessen)](https://nvie.com/posts/a-successful-git-branching-model/)
-に倣った構成。
-
-- **`main`**: リリース版。直接 push は禁止、PR 経由のみ。merge commit
-  (`--no-ff`) で develop からのリリースを取り込む。タグ打ちもこのブランチに対して。
-- **`develop`**: 開発統合ブランチ。日常の開発 commit はここに積む。`main` の
-  祖先関係を維持するので force push / reset は行わない (= 他人が `develop` を
-  base にした PR を立てても破綻しない)。
-- **feature ブランチ** (任意): 大きな変更や複数 commit に渡る作業は
-  `feature/<name>` を切って `develop` への PR を立てる。
+- **`main`**: 唯一の常設ブランチ。日常の開発 commit はここに積む。
+  リリースは main に注釈付きタグ (`vX.Y.Z`) を push して行う (下記)
+- **feature ブランチ** (任意): リスキーな変更や複数 commit にわたる作業のみ
+  `feature/<name>` を切り、main への merge で取り込む。恒久的な develop
+  ブランチは持たない
 
 ### コントリビュータ向け
 
-外部からの PR は `develop` を base にしてください (リリース直前の hotfix のみ
-`main` を base にして直接 PR でも OK)。
+外部からの PR は fork して `main` を base にしてください。
 
 ## リリース手順
 
@@ -85,18 +79,7 @@ GitHub Releases と Actions artifacts に登録する流れ。
 Android APK / AAB、macOS ZIP、Windows ZIP は GitHub Release に添付され、
 iOS IPA / xcarchive は Actions artifacts として取得する。
 
-### 1. develop → main を merge
-
-```sh
-# develop に積まれた変更で release できる状態になったら
-# GitHub UI で develop → main の PR を作成 → "Create a merge commit" で merge
-# (Squash / Rebase は無効化済み。Merge commit のみ)
-
-git checkout main && git pull             # merge commit を取り込む
-git checkout develop                      # reset 不要 (祖先関係維持)
-```
-
-### 2. main で `pubspec.yaml` の version を更新
+### 1. main で `pubspec.yaml` の version を更新
 
 ```yaml
 version: 1.2.3+1   # X.Y.Z 部分が tag と一致する必要あり
@@ -111,7 +94,7 @@ git commit -m "v1.2.3 リリース"
 git push
 ```
 
-### 3. tag を打って push
+### 2. tag を打って push
 
 ```sh
 git tag -a v1.2.3 -m "Release v1.2.3" && git push origin v1.2.3
@@ -123,7 +106,7 @@ tag の整合性を検証 → flutter build → 署名 → アーティファク
 tag を打ち直す (`git tag -d v1.2.3 && git push origin :v1.2.3` で削除してから
 再 tag)。
 
-### 4. アーティファクトを確認
+### 3. アーティファクトを確認
 
 GitHub Actions の `Release Build` が成功すると、tag と同名の GitHub Release に
 Android APK / AAB、macOS ZIP、Windows ZIP が添付される。iOS IPA / xcarchive は
