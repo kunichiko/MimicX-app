@@ -122,7 +122,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get turboRateHelp => '1 秒間に発火するボタン押下回数。下の連射 ON/OFF を有効にしたボタンに適用される。';
 
   @override
-  String get turboToggleSection => '連射 ON/OFF';
+  String get turboToggleSection => '連射 ON/OFF (画面ボタン)';
 
   @override
   String get turboToggleHelp =>
@@ -130,6 +130,16 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get turboBadge => '連';
+
+  @override
+  String get padAssignSection => 'ゲームパッドのボタン割り当て';
+
+  @override
+  String get padAssignNone => 'なし';
+
+  @override
+  String get padAssignHelp =>
+      'コントローラーのボタンを押すと該当行が光ります。「連」チップでボタンごとの連射を設定できます (速度は上の連射速度と共通)。';
 
   @override
   String get townsPadLabel => 'TOWNSパッド機能 (RUN/SELECT)';

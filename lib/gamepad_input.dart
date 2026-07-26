@@ -47,6 +47,8 @@ enum GamepadControl {
   north, // Xbox Y (上)
   l1, // 左バンパー
   r1, // 右バンパー
+  l2, // 左トリガー (ZL)
+  r2, // 右トリガー (ZR)
   select, // Back / Options
   start, // Start / Menu
 }
@@ -120,6 +122,8 @@ class GamepadInput {
       'KEYCODE_BUTTON_Y': GamepadControl.north,
       'KEYCODE_BUTTON_L1': GamepadControl.l1,
       'KEYCODE_BUTTON_R1': GamepadControl.r1,
+      'KEYCODE_BUTTON_L2': GamepadControl.l2,
+      'KEYCODE_BUTTON_R2': GamepadControl.r2,
       'KEYCODE_BUTTON_SELECT': GamepadControl.select,
       'KEYCODE_BUTTON_START': GamepadControl.start,
     };
@@ -151,6 +155,14 @@ class GamepadInput {
         _setAxis(e.gamepadId, _Axis.dpadX, e.value);
       case 'AXIS_HAT_Y':
         _setAxis(e.gamepadId, _Axis.dpadY, e.value); // up = +1 (反転済み)
+      // アナログトリガー (0..1)。パッドにより LTRIGGER/RTRIGGER と BRAKE/GAS の
+      // どちらで届くかが違うので両方受ける。デジタルボタン扱いに変換する。
+      case 'AXIS_LTRIGGER':
+      case 'AXIS_BRAKE':
+        _setButton(e.gamepadId, GamepadControl.l2, e.value > 0.5);
+      case 'AXIS_RTRIGGER':
+      case 'AXIS_GAS':
+        _setButton(e.gamepadId, GamepadControl.r2, e.value > 0.5);
     }
   }
 
@@ -179,6 +191,13 @@ class GamepadInput {
       case 'dwYpos':
         // winmm は y=0 が上なので符号反転して up = +1 に揃える
         _setAxis(e.gamepadId, _Axis.stickY, (32767.5 - e.value) / 32767.5);
+      case 'dwZpos':
+        // XInput 系パッドの winmm 互換層はトリガー 2 本を Z 軸 1 本に合成する
+        // (中央 = 中立、LT で増加 / RT で減少)。このため L2/R2 の同時押しは
+        // 検出できない (winmm の制約)。
+        final z = (e.value - 32767.5) / 32767.5;
+        _setButton(e.gamepadId, GamepadControl.l2, z > 0.5);
+        _setButton(e.gamepadId, GamepadControl.r2, z < -0.5);
       case 'pov':
         if (e.value >= 36000) {
           // released (65535)
@@ -205,6 +224,8 @@ class GamepadInput {
       'buttonY': GamepadControl.north,
       'leftShoulder': GamepadControl.l1,
       'rightShoulder': GamepadControl.r1,
+      'leftTrigger': GamepadControl.l2, // iOS (アナログ 0..1)
+      'rightTrigger': GamepadControl.r2,
       'buttonOptions': GamepadControl.select,
       'buttonMenu': GamepadControl.start,
       // macOS (gamepads_darwin, SF Symbols 名)
@@ -221,6 +242,13 @@ class GamepadInput {
       _setButton(e.gamepadId, btn, e.value > 0.5);
       return;
     }
+    // macOS の SF Symbols 名はコントローラーの刻印に合わせて変わる
+    // (Xbox: l1/l2、Switch Pro: l/zl、PS: l1/l2 など)。プレフィックスで拾う。
+    final sfBtn = _darwinSfPrefixButton(e.key);
+    if (sfBtn != null) {
+      _setButton(e.gamepadId, sfBtn, e.value > 0.5);
+      return;
+    }
     // 軸: key は "<要素名> - xAxis" 形式
     final isX = e.key.endsWith('xAxis');
     final isY = e.key.endsWith('yAxis');
@@ -233,6 +261,17 @@ class GamepadInput {
     } else if (isLeftStick) {
       _setAxis(e.gamepadId, isX ? _Axis.stickX : _Axis.stickY, e.value);
     }
+  }
+
+  /// macOS SF Symbols 名のプレフィックスからバンパー/トリガーを判定する。
+  /// 例: "l2.rectangle.roundedtop" (Xbox/PS), "zl.rectangle.roundedtop" (Switch),
+  ///     "l.rectangle.roundedbottom" (Switch の L)。
+  static GamepadControl? _darwinSfPrefixButton(String key) {
+    if (key.startsWith('l2.') || key.startsWith('zl.')) return GamepadControl.l2;
+    if (key.startsWith('r2.') || key.startsWith('zr.')) return GamepadControl.r2;
+    if (key.startsWith('l.rectangle')) return GamepadControl.l1;
+    if (key.startsWith('r.rectangle')) return GamepadControl.r1;
+    return null;
   }
 
   // --- 状態更新と合成 ------------------------------------------------------------
@@ -311,18 +350,20 @@ class GamepadInput {
 /// 論理コントロール → note のマッピングと連射 (turbo) を適用して
 /// MidiService.joystickPress/Release を駆動する。
 ///
-/// turbo の挙動は画面ボタン (_ButtonGroupState) と同一:
-///   - 押下: 即時 press、turbo 対象ならタイマーで press/release をトグル
-///   - 離し: turbo 対象は「物理 press 中なら release」、通常は即 release
+/// - 方向キーと Start/Back (RUN/SELECT 等) は [mapping] の固定割り当て
+/// - ボタン類 ([assignable]) は [JoystickSettings.padAssign] の割り当てに従う。
+///   連射フラグも割り当て側 (物理ボタン単位) に付く。複数の物理ボタンが同じ
+///   note を指せるため、note の press/release は参照カウントで多重化する
+/// - turbo の press/release トグル周期は画面ボタンと同じ turboRate を使う
 class GamepadNoteBinder {
   GamepadNoteBinder({
     required this.midi,
     required this.settings,
     required this.mapping,
     this.pressedNotes,
+    this.pressedControls,
     this.noteGate,
   }) {
-    _lastTurboNotes = settings.turboNotes;
     _lastTurboRate = settings.turboRate;
     settings.addListener(_onSettingsChanged);
     _input = GamepadInput(onControl: _onControl);
@@ -331,11 +372,18 @@ class GamepadNoteBinder {
 
   final MidiService midi;
   final JoystickSettings settings;
+
+  /// 固定マッピング (方向キー + Start/Back)。[assignable] のコントロールは
+  /// このマップではなく settings.padAssign を参照する。
   final Map<GamepadControl, int> mapping;
 
   /// パッド起因で論理押下中の note 集合を UI へ通知する (画面ボタンの発光連動用)。
   /// null なら通知しない。
   final ValueNotifier<Set<int>>? pressedNotes;
+
+  /// 物理コントロールの生の押下状態を UI へ通知する (割り当て設定画面の
+  /// 行ハイライト用)。割り当ての有無に関わらず全コントロールが流れる。
+  final ValueNotifier<Set<GamepadControl>>? pressedControls;
 
   /// note の押下を許可するかの動的ゲート (null なら全許可)。
   /// 設定トグル (例: TOWNS パッド機能) で一部 note を無効化するのに使う。
@@ -343,43 +391,90 @@ class GamepadNoteBinder {
   /// 閉じても note が押しっぱなしで残らないようにしている。
   final bool Function(int note)? noteGate;
 
+  /// 割り当て変更可能な物理コントロール (JoystickSettings.assignableControls と同順)。
+  static const List<GamepadControl> assignable = [
+    GamepadControl.south,
+    GamepadControl.east,
+    GamepadControl.west,
+    GamepadControl.north,
+    GamepadControl.l1,
+    GamepadControl.r1,
+    GamepadControl.l2,
+    GamepadControl.r2,
+  ];
+
   late final GamepadInput _input;
 
-  /// 論理的に押下中の note (turbo の物理トグルとは独立)。
-  final Set<int> _activeNotes = {};
+  /// 押下中コントロール → そのコントロールが発行した note。
+  /// 押下中に割り当てを変更しても、離すまでは押下時の note を使う。
+  final Map<GamepadControl, int> _heldNotes = {};
 
-  /// turbo 対象 note の物理状態 (true = press 中)。
-  final Map<int, bool> _turboPressed = {};
+  /// note ごとの press 参照カウント。0→1 で NoteOn、1→0 で NoteOff を送る。
+  final Map<int, int> _noteRefs = {};
+
+  /// turbo 中のコントロールの物理位相 (true = press 中)。
+  final Map<GamepadControl, bool> _turboPhase = {};
+
+  /// 生の押下状態 (pressedControls 通知用)。
+  final Set<GamepadControl> _rawPressed = {};
 
   Timer? _turboTimer;
-  late Set<int> _lastTurboNotes;
   late double _lastTurboRate;
 
   bool _disposed = false;
 
-  void _onControl(GamepadControl control, bool pressed) {
-    final note = mapping[control];
-    if (note == null) return;
-    if (pressed) {
-      if (noteGate != null && !noteGate!(note)) return;
-      if (!_activeNotes.add(note)) return;
-      midi.joystickPress(note);
-      if (settings.isTurbo(note)) _turboPressed[note] = true;
-    } else {
-      if (!_activeNotes.remove(note)) return;
-      if (settings.isTurbo(note)) {
-        if (_turboPressed[note] == true) midi.joystickRelease(note);
-        _turboPressed.remove(note);
-      } else {
-        midi.joystickRelease(note);
-      }
+  int? _noteFor(GamepadControl control) {
+    if (assignable.contains(control)) {
+      return settings.padAssign(control.name).note;
     }
-    pressedNotes?.value = Set.unmodifiable(_activeNotes);
+    return mapping[control];
+  }
+
+  bool _turboFor(GamepadControl control) =>
+      assignable.contains(control) && settings.padAssign(control.name).turbo;
+
+  void _refPress(int note) {
+    final refs = (_noteRefs[note] ?? 0) + 1;
+    _noteRefs[note] = refs;
+    if (refs == 1) midi.joystickPress(note);
+  }
+
+  void _refRelease(int note) {
+    final refs = (_noteRefs[note] ?? 0) - 1;
+    if (refs <= 0) {
+      _noteRefs.remove(note);
+      midi.joystickRelease(note);
+    } else {
+      _noteRefs[note] = refs;
+    }
+  }
+
+  void _onControl(GamepadControl control, bool pressed) {
+    // 生の押下状態は割り当ての有無に関わらず通知する (設定画面のハイライト用)
+    pressed ? _rawPressed.add(control) : _rawPressed.remove(control);
+    pressedControls?.value = Set.unmodifiable(_rawPressed);
+
+    if (pressed) {
+      if (_heldNotes.containsKey(control)) return;
+      final note = _noteFor(control);
+      if (note == null) return;
+      if (noteGate != null && !noteGate!(note)) return;
+      _heldNotes[control] = note;
+      if (_turboFor(control)) _turboPhase[control] = true;
+      _refPress(note);
+    } else {
+      final note = _heldNotes.remove(control);
+      if (note == null) return;
+      final phase = _turboPhase.remove(control);
+      // turbo の OFF 位相で止まっていた場合は既に release 済み
+      if (phase == null || phase) _refRelease(note);
+    }
+    pressedNotes?.value = Set.unmodifiable(_heldNotes.values.toSet());
     _ensureTurboTimer();
   }
 
   void _ensureTurboTimer() {
-    final hasActiveTurbo = _activeNotes.any(settings.isTurbo);
+    final hasActiveTurbo = _turboPhase.isNotEmpty;
     if (hasActiveTurbo && _turboTimer == null) {
       _startTurboTimer();
     } else if (!hasActiveTurbo && _turboTimer != null) {
@@ -401,30 +496,29 @@ class GamepadNoteBinder {
   }
 
   void _onTurboTick() {
-    for (final note in _activeNotes) {
-      if (!settings.isTurbo(note)) continue;
-      final nowPressed = !(_turboPressed[note] ?? false);
-      _turboPressed[note] = nowPressed;
-      nowPressed ? midi.joystickPress(note) : midi.joystickRelease(note);
+    for (final control in _turboPhase.keys.toList()) {
+      final note = _heldNotes[control];
+      if (note == null) continue;
+      final nowPressed = !_turboPhase[control]!;
+      _turboPhase[control] = nowPressed;
+      nowPressed ? _refPress(note) : _refRelease(note);
     }
   }
 
-  /// turbo 設定 (対象 note / レート) の変更へ追従する
-  /// (_ButtonGroupState.didUpdateWidget と同じ調整)。
+  /// 設定変更 (割り当ての連射フラグ / レート) へ押下中のコントロールを追従させる。
   void _onSettingsChanged() {
-    final turboNotes = settings.turboNotes;
-    // turbo → 非 turbo: release 半サイクルで止まっていたら押し直す
-    for (final note in _lastTurboNotes.difference(turboNotes)) {
-      if (_activeNotes.contains(note) && _turboPressed[note] != true) {
-        midi.joystickPress(note);
+    for (final control in _heldNotes.keys.toList()) {
+      final wantTurbo = _turboFor(control);
+      final isTurbo = _turboPhase.containsKey(control);
+      if (wantTurbo && !isTurbo) {
+        // 押しっぱなし (press 中) から turbo サイクルへ
+        _turboPhase[control] = true;
+      } else if (!wantTurbo && isTurbo) {
+        // turbo → 通常: OFF 位相で止まっていたら押し直す
+        final phase = _turboPhase.remove(control)!;
+        if (!phase) _refPress(_heldNotes[control]!);
       }
-      _turboPressed.remove(note);
     }
-    // 非 turbo → turbo: press 状態から turbo サイクルへ
-    for (final note in turboNotes.difference(_lastTurboNotes)) {
-      if (_activeNotes.contains(note)) _turboPressed[note] = true;
-    }
-    _lastTurboNotes = turboNotes;
 
     if (_lastTurboRate != settings.turboRate) {
       _lastTurboRate = settings.turboRate;
@@ -465,6 +559,14 @@ const Map<GamepadControl, int> atariGamepadMapping = {
   GamepadControl.start: MidiService.noteRun,
   GamepadControl.select: MidiService.noteSelect,
 };
+
+/// モードの固定マッピングから JoystickSettings 用の既定パッド割り当て
+/// (コントロール名 → note) を作る。割り当て変更可能なボタンだけを抜き出す
+/// (方向キーと Start/Back は含まれない)。
+Map<String, int> defaultPadAssignOf(Map<GamepadControl, int> mapping) => {
+      for (final c in GamepadNoteBinder.assignable)
+        if (mapping.containsKey(c)) c.name: mapping[c]!,
+    };
 
 /// TOWNS パッド機能のトグルに応じて RUN/SELECT ノートをゲートする述語を作る。
 /// ATARI モードの GamepadNoteBinder に渡す。
@@ -508,8 +610,11 @@ class PersistedGamepadSession {
     final modeId =
         prefs.getString('joystick.selectedMode') ?? 'joystick.atari';
     final isMd6 = modeId == 'joystick.md6';
-    final settings =
-        JoystickSettings(prefix: isMd6 ? 'joystick.md6' : 'joystick.atari');
+    final settings = JoystickSettings(
+      prefix: isMd6 ? 'joystick.md6' : 'joystick.atari',
+      defaultPadAssign:
+          defaultPadAssignOf(isMd6 ? md6GamepadMapping : atariGamepadMapping),
+    );
     await settings.load();
     // ファーム側のパッドモードも合わせる。失敗しても binder は作る
     // (旧ファームでは NG が返るだけで実害なし)。

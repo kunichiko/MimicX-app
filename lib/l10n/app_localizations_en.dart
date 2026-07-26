@@ -126,7 +126,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Number of presses per second for buttons with turbo enabled.';
 
   @override
-  String get turboToggleSection => 'Turbo on/off';
+  String get turboToggleSection => 'Turbo on/off (on-screen buttons)';
 
   @override
   String get turboToggleHelp =>
@@ -134,6 +134,16 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get turboBadge => 'T';
+
+  @override
+  String get padAssignSection => 'Gamepad button assignment';
+
+  @override
+  String get padAssignNone => 'None';
+
+  @override
+  String get padAssignHelp =>
+      'Press a button on your controller to highlight its row. Use the turbo chip to enable per-button turbo (rate is shared with the turbo rate above).';
 
   @override
   String get townsPadLabel => 'TOWNS pad feature (RUN/SELECT)';

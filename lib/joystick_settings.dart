@@ -1,6 +1,17 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// 物理ゲームパッドのボタン 1 つ分の割り当て。
+class PadButtonAssign {
+  /// 割り当て先 note。null = 割り当てなし (None)。
+  final int? note;
+
+  /// この物理ボタンに連射を適用するか (note が null のときは常に false)。
+  final bool turbo;
+
+  const PadButtonAssign(this.note, this.turbo);
+}
+
 /// ジョイスティック画面の操作設定。
 ///
 /// モードごとに 1 インスタンス持つ前提で、コンストラクタの [prefix] を
@@ -12,7 +23,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 class JoystickSettings extends ChangeNotifier {
   final String prefix;
 
-  JoystickSettings({required this.prefix});
+  /// 物理ゲームパッドの既定割り当て (GamepadControl.name → note)。
+  /// モードごとの固定マッピング (gamepad_input.dart) から作る。
+  /// ゲームパッド非対応モードでは空でよい。
+  final Map<String, int> defaultPadAssign;
+
+  JoystickSettings({required this.prefix, this.defaultPadAssign = const {}});
+
+  /// 割り当て変更可能な物理コントロール名 (GamepadControl.name)。表示順。
+  static const List<String> assignableControls = [
+    'south', 'east', 'west', 'north', 'l1', 'r1', 'l2', 'r2',
+  ];
 
   // 新キー (prefixed)
   String get _kDeadZoneRatio => '$prefix.deadZoneRatio';
@@ -20,6 +41,7 @@ class JoystickSettings extends ChangeNotifier {
   String get _kTurboNotes => '$prefix.turboNotes';
   String get _kTurboRate => '$prefix.turboRate';
   String get _kTownsPad => '$prefix.townsPad';
+  String get _kPadAssign => '$prefix.padAssign';
 
   // v1.0.5 までの旧キー (どのモードでもなく単一インスタンスだった時代)。
   // 既存ユーザの設定を引き継ぐため、新キーが無い場合のフォールバックに使う。
@@ -44,6 +66,7 @@ class JoystickSettings extends ChangeNotifier {
   Set<int> _turboNotes = const <int>{};
   double _turboRate = defaultTurboRate;
   bool _townsPad = true;
+  Map<String, PadButtonAssign> _padAssign = {};
 
   bool get loaded => _loaded;
   double get deadZoneRatio => _deadZoneRatio;
@@ -82,8 +105,51 @@ class JoystickSettings extends ChangeNotifier {
 
     _townsPad = prefs.getBool(_kTownsPad) ?? true;
 
+    // パッド割り当て: "control=note:turbo" のリスト (note '-' = None)。
+    _padAssign = {};
+    for (final entry in prefs.getStringList(_kPadAssign) ?? const <String>[]) {
+      final eq = entry.indexOf('=');
+      final colon = entry.lastIndexOf(':');
+      if (eq < 0 || colon < eq) continue;
+      final control = entry.substring(0, eq);
+      final noteStr = entry.substring(eq + 1, colon);
+      final note = noteStr == '-' ? null : int.tryParse(noteStr);
+      final turbo = entry.substring(colon + 1) == '1';
+      _padAssign[control] = PadButtonAssign(note, note != null && turbo);
+    }
+
     _loaded = true;
     notifyListeners();
+  }
+
+  /// 物理ボタンの割り当てを返す。
+  ///
+  /// ユーザが一度も変更していない間は、モード既定のマッピング + 画面ボタンの
+  /// 連射設定 (turboNotes) を反映した値を返す (= 従来のゲームパッド挙動と一致)。
+  /// 一度でも変更すると保存値が優先され、以降は turboNotes と独立に管理される。
+  PadButtonAssign padAssign(String control) {
+    final stored = _padAssign[control];
+    if (stored != null) return stored;
+    final note = defaultPadAssign[control];
+    return PadButtonAssign(note, note != null && _turboNotes.contains(note));
+  }
+
+  Future<void> setPadAssign(String control, PadButtonAssign assign) async {
+    // 初回の変更時は既定値 (turboNotes 反映済み) を全コントロール分 materialize
+    // してから上書きする。以降 turboNotes の変更はゲームパッドに影響しない。
+    if (_padAssign.isEmpty) {
+      for (final c in assignableControls) {
+        _padAssign[c] = padAssign(c);
+      }
+    }
+    _padAssign[control] =
+        PadButtonAssign(assign.note, assign.note != null && assign.turbo);
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_kPadAssign, [
+      for (final e in _padAssign.entries)
+        '${e.key}=${e.value.note ?? '-'}:${e.value.turbo ? 1 : 0}',
+    ]);
   }
 
   Future<void> setDeadZoneRatio(double v) async {

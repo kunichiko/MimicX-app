@@ -287,7 +287,7 @@ abstract class AppLocalizations {
   /// No description provided for @turboToggleSection.
   ///
   /// In en, this message translates to:
-  /// **'Turbo on/off'**
+  /// **'Turbo on/off (on-screen buttons)'**
   String get turboToggleSection;
 
   /// No description provided for @turboToggleHelp.
@@ -301,6 +301,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'T'**
   String get turboBadge;
+
+  /// No description provided for @padAssignSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Gamepad button assignment'**
+  String get padAssignSection;
+
+  /// No description provided for @padAssignNone.
+  ///
+  /// In en, this message translates to:
+  /// **'None'**
+  String get padAssignNone;
+
+  /// No description provided for @padAssignHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Press a button on your controller to highlight its row. Use the turbo chip to enable per-button turbo (rate is shared with the turbo rate above).'**
+  String get padAssignHelp;
 
   /// No description provided for @townsPadLabel.
   ///

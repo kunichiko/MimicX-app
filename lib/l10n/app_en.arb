@@ -115,9 +115,12 @@
     }
   },
   "turboRateHelp": "Number of presses per second for buttons with turbo enabled.",
-  "turboToggleSection": "Turbo on/off",
+  "turboToggleSection": "Turbo on/off (on-screen buttons)",
   "turboToggleHelp": "Buttons with turbo enabled will repeat press / release at the rate above while held.",
   "turboBadge": "T",
+  "padAssignSection": "Gamepad button assignment",
+  "padAssignNone": "None",
+  "padAssignHelp": "Press a button on your controller to highlight its row. Use the turbo chip to enable per-button turbo (rate is shared with the turbo rate above).",
   "@turboBadge": {
     "description": "Short badge shown on a button when turbo is enabled"
   },

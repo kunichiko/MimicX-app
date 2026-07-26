@@ -106,8 +106,10 @@ class _JoystickPageState extends State<JoystickPage> {
 /// ATARI 互換 2 ボタンモード。
 class AtariMode extends ChannelMode {
   final int channel;
-  final JoystickSettings _settings =
-      JoystickSettings(prefix: 'joystick.atari');
+  final JoystickSettings _settings = JoystickSettings(
+    prefix: 'joystick.atari',
+    defaultPadAssign: defaultPadAssignOf(atariGamepadMapping),
+  );
 
   AtariMode({required this.channel}) {
     // 設定変更 (turbo の ON/OFF や load 完了) を本体 body へ反映するため
@@ -123,6 +125,12 @@ class AtariMode extends ChannelMode {
     (note: MidiService.noteB, label: 'B'),
   ];
 
+  /// ゲームパッド割り当てのターゲット候補 (None は設定 UI 側が追加する)。
+  static const List<({int note, String label})> _padTargets = [
+    (note: MidiService.noteA, label: 'A'),
+    (note: MidiService.noteB, label: 'B'),
+  ];
+
   @override
   String get id => 'joystick.atari';
 
@@ -131,6 +139,10 @@ class AtariMode extends ChannelMode {
   /// パッド起因で押下中の note (画面ボタンの発光連動用)。
   final ValueNotifier<Set<int>> _gamepadPressed =
       ValueNotifier(const <int>{});
+
+  /// 物理コントロールの生の押下状態 (割り当て設定画面のハイライト用)。
+  final ValueNotifier<Set<GamepadControl>> _gamepadControls =
+      ValueNotifier(const <GamepadControl>{});
 
   @override
   String label(BuildContext context) =>
@@ -146,6 +158,7 @@ class AtariMode extends ChannelMode {
       settings: _settings,
       mapping: atariGamepadMapping,
       pressedNotes: _gamepadPressed,
+      pressedControls: _gamepadControls,
       // TOWNS パッド機能 OFF のときは Start/Back → RUN/SELECT を無効化
       noteGate: townsPadNoteGate(_settings),
     );
@@ -174,12 +187,15 @@ class AtariMode extends ChannelMode {
         settings: _settings,
         turboCandidates: _turboCandidates,
         showTownsPad: true,
+        padAssignTargets: _padTargets,
+        gamepadPressed: _gamepadControls,
       );
 
   @override
   void dispose() {
     _gamepad?.dispose();
     _gamepadPressed.dispose();
+    _gamepadControls.dispose();
     _settings.dispose();
     super.dispose();
   }
@@ -188,8 +204,10 @@ class AtariMode extends ChannelMode {
 /// メガドライブ 6 ボタンパッド互換モード。
 class Md6Mode extends ChannelMode {
   final int channel;
-  final JoystickSettings _settings =
-      JoystickSettings(prefix: 'joystick.md6');
+  final JoystickSettings _settings = JoystickSettings(
+    prefix: 'joystick.md6',
+    defaultPadAssign: defaultPadAssignOf(md6GamepadMapping),
+  );
 
   Md6Mode({required this.channel}) {
     _settings.addListener(notifyListeners);
@@ -204,6 +222,18 @@ class Md6Mode extends ChannelMode {
     (note: MidiService.noteC, label: 'C'),
   ];
 
+  /// ゲームパッド割り当てのターゲット候補 (None は設定 UI 側が追加する)。
+  static const List<({int note, String label})> _padTargets = [
+    (note: MidiService.noteA, label: 'A'),
+    (note: MidiService.noteB, label: 'B'),
+    (note: MidiService.noteC, label: 'C'),
+    (note: MidiService.noteX, label: 'X'),
+    (note: MidiService.noteY, label: 'Y'),
+    (note: MidiService.noteZ, label: 'Z'),
+    (note: MidiService.noteStart, label: 'Start'),
+    (note: MidiService.noteMode, label: 'Mode'),
+  ];
+
   @override
   String get id => 'joystick.md6';
 
@@ -212,6 +242,10 @@ class Md6Mode extends ChannelMode {
   /// パッド起因で押下中の note (画面ボタンの発光連動用)。
   final ValueNotifier<Set<int>> _gamepadPressed =
       ValueNotifier(const <int>{});
+
+  /// 物理コントロールの生の押下状態 (割り当て設定画面のハイライト用)。
+  final ValueNotifier<Set<GamepadControl>> _gamepadControls =
+      ValueNotifier(const <GamepadControl>{});
 
   @override
   String label(BuildContext context) =>
@@ -227,6 +261,7 @@ class Md6Mode extends ChannelMode {
       settings: _settings,
       mapping: md6GamepadMapping,
       pressedNotes: _gamepadPressed,
+      pressedControls: _gamepadControls,
     );
     return null;
   }
@@ -249,13 +284,18 @@ class Md6Mode extends ChannelMode {
   }
 
   @override
-  Widget buildSettings(BuildContext context) =>
-      _SettingsSheet(settings: _settings, turboCandidates: _turboCandidates);
+  Widget buildSettings(BuildContext context) => _SettingsSheet(
+        settings: _settings,
+        turboCandidates: _turboCandidates,
+        padAssignTargets: _padTargets,
+        gamepadPressed: _gamepadControls,
+      );
 
   @override
   void dispose() {
     _gamepad?.dispose();
     _gamepadPressed.dispose();
+    _gamepadControls.dispose();
     _settings.dispose();
     super.dispose();
   }
@@ -1439,11 +1479,18 @@ class _SettingsSheet extends StatefulWidget {
   final List<({int note, String label})> turboCandidates;
   /// TOWNS パッド機能トグルを表示するか (ATARI モードのみ true)。
   final bool showTownsPad;
+  /// ゲームパッド割り当てセクションのターゲット候補 (null なら非表示)。
+  /// None は UI 側で自動的に追加される。
+  final List<({int note, String label})>? padAssignTargets;
+  /// 物理コントロールの押下状態 (割り当て行のハイライト用)。
+  final ValueListenable<Set<GamepadControl>>? gamepadPressed;
 
   const _SettingsSheet({
     required this.settings,
     required this.turboCandidates,
     this.showTownsPad = false,
+    this.padAssignTargets,
+    this.gamepadPressed,
   });
 
   @override
@@ -1474,6 +1521,87 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     // turbo の chip 切り替えなどで再描画する。slider の値はローカル state を
     // 正にしてあるので上書きしない。
     if (mounted) setState(() {});
+  }
+
+  /// 割り当て設定の行 (物理ボタン → ターゲットのプルダウン + 連射チップ)。
+  /// 表示順は物理ボタンの一般的な並びに合わせる。
+  static const List<(GamepadControl, String)> _padControlRows = [
+    (GamepadControl.south, 'A (下)'),
+    (GamepadControl.east, 'B (右)'),
+    (GamepadControl.west, 'X (左)'),
+    (GamepadControl.north, 'Y (上)'),
+    (GamepadControl.l1, 'L1'),
+    (GamepadControl.r1, 'R1'),
+    (GamepadControl.l2, 'L2 (ZL)'),
+    (GamepadControl.r2, 'R2 (ZR)'),
+  ];
+
+  /// Dropdown で「割り当てなし」を表す番兵値 (note は正なので衝突しない)。
+  static const int _noneValue = -1;
+
+  Widget _padAssignRow(
+      GamepadControl control, String label, AppLocalizations l) {
+    final assign = widget.settings.padAssign(control.name);
+    final items = [
+      for (final t in widget.padAssignTargets!)
+        DropdownMenuItem<int>(value: t.note, child: Text(t.label)),
+      DropdownMenuItem<int>(
+          value: _noneValue, child: Text(l.padAssignNone)),
+    ];
+    // 保存値がこのモードのターゲットに無い場合 (将来の候補変更など) は None 扱い
+    final rawValue = assign.note ?? _noneValue;
+    final value =
+        items.any((i) => i.value == rawValue) ? rawValue : _noneValue;
+
+    final row = Row(
+      children: [
+        SizedBox(width: 76, child: Text(label)),
+        const Icon(Icons.arrow_forward, size: 14, color: Colors.grey),
+        const SizedBox(width: 12),
+        DropdownButton<int>(
+          value: value,
+          items: items,
+          onChanged: (v) {
+            if (v == null) return;
+            final note = v == _noneValue ? null : v;
+            widget.settings
+                .setPadAssign(control.name, PadButtonAssign(note, assign.turbo));
+          },
+        ),
+        const Spacer(),
+        FilterChip(
+          label: Text(l.turboBadge),
+          selected: assign.turbo,
+          onSelected: assign.note == null
+              ? null
+              : (v) => widget.settings.setPadAssign(
+                  control.name, PadButtonAssign(assign.note, v)),
+        ),
+      ],
+    );
+
+    final pressed = widget.gamepadPressed;
+    if (pressed == null) return row;
+    // 物理ボタンの押下中は行をハイライトする (どの物理ボタンがどの行かを
+    // 実機で確かめられるように)。
+    return ValueListenableBuilder<Set<GamepadControl>>(
+      valueListenable: pressed,
+      builder: (context, set, child) {
+        final lit = set.contains(control);
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          decoration: BoxDecoration(
+            color: lit
+                ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.18)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: child,
+        );
+      },
+      child: row,
+    );
   }
 
   @override
@@ -1575,6 +1703,23 @@ class _SettingsSheetState extends State<_SettingsSheet> {
               l.turboToggleHelp,
               style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
+
+            // ゲームパッドのボタン割り当て
+            if (widget.padAssignTargets != null) ...[
+              const SizedBox(height: 16),
+              Text(
+                l.padAssignSection,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                l.padAssignHelp,
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 4),
+              for (final row in _padControlRows)
+                _padAssignRow(row.$1, row.$2, l),
+            ],
 
             if (widget.showTownsPad) ...[
               const SizedBox(height: 16),
