@@ -1524,12 +1524,14 @@ class _SettingsSheetState extends State<_SettingsSheet> {
   }
 
   /// 割り当て設定の行 (物理ボタン → ターゲットのプルダウン + 連射チップ)。
-  /// 表示順は物理ボタンの一般的な並びに合わせる。
+  /// ラベルは各 OS がコントローラーの「刻印」で報告してくる論理名。
+  /// 物理位置はコントローラーによって異なる (Xbox: A=下 / Nintendo: A=右) ため
+  /// 位置の注記は付けない。どのボタンがどの行かは押下ハイライトで確認する。
   static const List<(GamepadControl, String)> _padControlRows = [
-    (GamepadControl.south, 'A (下)'),
-    (GamepadControl.east, 'B (右)'),
-    (GamepadControl.west, 'X (左)'),
-    (GamepadControl.north, 'Y (上)'),
+    (GamepadControl.south, 'A'),
+    (GamepadControl.east, 'B'),
+    (GamepadControl.west, 'X'),
+    (GamepadControl.north, 'Y'),
     (GamepadControl.l1, 'L1'),
     (GamepadControl.r1, 'R1'),
     (GamepadControl.l2, 'L2 (ZL)'),
