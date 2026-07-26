@@ -63,12 +63,13 @@ dependency_overrides:
   # フォーク先で midiOutShortMsg 経路 + teardown 順序修正 + 二重 disconnect
   # 防止のパッチを当てている。upstream PR がマージされ次第このオーバーライドを
   # 外して pub.dev 版に戻す。
-  # 46d4bdb (fix/ble-connect-readiness): BLE connect() を購読完了まで待機 +
+  # bf02d27 (fix/ble-connect-readiness): BLE connect() を購読完了まで待機 +
   # 既接続なら直接再購読。スキャン残存接続で「選択しても入れない」問題の修正
+  # (旧 46d4bdb。2026-07-26 のメール修正 rewrite で SHA が変わった)
   flutter_midi_command_windows:
     git:
       url: https://github.com/kunichiko/flutter_midi_command_windows.git
-      ref: 46d4bdb
+      ref: bf02d27
 
 dev_dependencies:
   flutter_test:
