@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.6.1+26
+version: 1.6.2+27
 
 environment:
   sdk: ^3.8.1
@@ -63,13 +63,13 @@ dependency_overrides:
   # フォーク先で midiOutShortMsg 経路 + teardown 順序修正 + 二重 disconnect
   # 防止のパッチを当てている。upstream PR がマージされ次第このオーバーライドを
   # 外して pub.dev 版に戻す。
-  # 257af9c (fix/winmm-stability): BLE connect() を購読完了まで待機 + 既接続なら
+  # 5ca7830 (fix/winmm-stability): BLE connect() を購読完了まで待機 + 既接続なら
   # 直接再購読 + 切断イベントでデバイスを登録簿から削除しない + ボンド不一致
   # (デバイス側の鍵喪失) を検知したら自動で unpair → 再ペアリングして修復
   flutter_midi_command_windows:
     git:
       url: https://github.com/kunichiko/flutter_midi_command_windows.git
-      ref: 257af9c
+      ref: 5ca7830
 
 dev_dependencies:
   flutter_test:
