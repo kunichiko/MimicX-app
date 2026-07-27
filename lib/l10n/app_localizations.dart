@@ -320,6 +320,18 @@ abstract class AppLocalizations {
   /// **'Press a button on your controller to highlight its row. Use the turbo chip to enable per-button turbo (rate is shared with the turbo rate above).'**
   String get padAssignHelp;
 
+  /// No description provided for @bleWinPairingHintTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Cannot connect'**
+  String get bleWinPairingHintTitle;
+
+  /// No description provided for @bleWinPairingHintBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The BLE connection to the adapter keeps failing. The adapter may have lost its pairing keys (e.g. after a firmware update with \"erase device\").\n\nRemove this adapter (MimicX) in Windows Settings > Bluetooth & devices, then try connecting again.'**
+  String get bleWinPairingHintBody;
+
   /// No description provided for @townsPadLabel.
   ///
   /// In en, this message translates to:

@@ -146,6 +146,13 @@ class AppLocalizationsEn extends AppLocalizations {
       'Press a button on your controller to highlight its row. Use the turbo chip to enable per-button turbo (rate is shared with the turbo rate above).';
 
   @override
+  String get bleWinPairingHintTitle => 'Cannot connect';
+
+  @override
+  String get bleWinPairingHintBody =>
+      'The BLE connection to the adapter keeps failing. The adapter may have lost its pairing keys (e.g. after a firmware update with \"erase device\").\n\nRemove this adapter (MimicX) in Windows Settings > Bluetooth & devices, then try connecting again.';
+
+  @override
   String get townsPadLabel => 'TOWNS pad feature (RUN/SELECT)';
 
   @override

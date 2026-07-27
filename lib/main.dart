@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -73,6 +74,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// 続ける) になる。識別はデバイスごとに 1 回でよいので、既知 id は接続せず
   /// キャッシュを使う。
   final Map<String, DeviceIdentity> _identityCache = {};
+
+  /// 識別に失敗し続けるデバイスのセッション内クールダウン (deviceId → 状態)。
+  /// ボンド不一致で必ず切断されるデバイスや Mimic X ではない MIDI 機器が、
+  /// 自動再スキャンのたびに接続試行を専有して他のデバイスの識別を遅らせる
+  /// のを防ぐ。連続失敗 2 回目から 15s × 2^n (上限 120s) スキップする。
+  final Map<String, ({int fails, DateTime until})> _identifyCooldown = {};
+
   bool _scanning = false;
   /// _openDevice の connect+identify 中だけ true。Android で connectToDevice が
   /// 数秒かかるため、その間にホーム画面に半透明オーバーレイ + スピナーを出して
@@ -176,6 +184,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         dev.identity = cached;
         continue;
       }
+      // クールダウン中 (直近の識別が連続失敗) のデバイスは今回はスキップ
+      final cooldown = _identifyCooldown[dev.id];
+      if (cooldown != null && DateTime.now().isBefore(cooldown.until)) {
+        continue;
+      }
       // identifyDevice 内部で IDENTIFY を複数回リトライする。それでも BLE は
       // 初回接続でサービス探索/notify 購読 (+ Windows はペアリング) が間に合わず、
       // 1 接続セッション内のリトライ窓では取りこぼすことがある (= 初回スキャンで
@@ -196,9 +209,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           await Future.delayed(const Duration(milliseconds: 400));
         }
       }
-      // 識別できたものだけキャッシュ (非対応デバイスは毎回試させる)。
+      // 識別できたものだけキャッシュ。失敗したデバイスはクールダウンを
+      // 積み増して、しばらく再試行しない (時間経過で自動的に再試行される)。
       if (dev.identity != null) {
         _identityCache[dev.id] = dev.identity!;
+        _identifyCooldown.remove(dev.id);
+      } else {
+        final fails = (cooldown?.fails ?? 0) + 1;
+        final waitSecs = fails < 2 ? 0 : (15 << (fails - 2)).clamp(15, 120);
+        _identifyCooldown[dev.id] = (
+          fails: fails,
+          until: DateTime.now().add(Duration(seconds: waitSecs)),
+        );
       }
     }
 
@@ -288,7 +310,30 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     } finally {
       if (mounted) setState(() => _opening = false);
     }
-    if (!success || !mounted) return;
+    if (!success) {
+      // Windows の BLE は、アダプタ側がボンド (LTK) を失っている (erase 付き
+      // ファーム更新後など) と接続直後の切断を繰り返す。fork 側の自動修復
+      // (unpair → 再ペアリング) でも復旧できずここまで落ちてきた場合の
+      // 最終フォールバックとして、手動での復旧手順を案内する。
+      if (mounted && device.isBle && Platform.isWindows) {
+        final l = AppLocalizations.of(context)!;
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text(l.bleWinPairingHintTitle),
+            content: Text(l.bleWinPairingHintBody),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
 
     final identity = device.identity;
     final l = AppLocalizations.of(context)!;

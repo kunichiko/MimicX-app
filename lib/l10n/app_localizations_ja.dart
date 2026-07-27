@@ -142,6 +142,13 @@ class AppLocalizationsJa extends AppLocalizations {
       'コントローラーのボタンを押すと該当行が光ります。「連」チップでボタンごとの連射を設定できます (速度は上の連射速度と共通)。';
 
   @override
+  String get bleWinPairingHintTitle => '接続できません';
+
+  @override
+  String get bleWinPairingHintBody =>
+      'アダプタとの BLE 接続が繰り返し失敗しました。ファームウェア更新 (erase 付き書き込み) などでアダプタ側のペアリング情報が消えている可能性があります。\n\nWindows の [設定] > [Bluetooth とデバイス] からこのアダプタ (MimicX) を削除し、もう一度接続してみてください。';
+
+  @override
   String get townsPadLabel => 'TOWNSパッド機能 (RUN/SELECT)';
 
   @override
