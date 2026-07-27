@@ -63,13 +63,13 @@ dependency_overrides:
   # フォーク先で midiOutShortMsg 経路 + teardown 順序修正 + 二重 disconnect
   # 防止のパッチを当てている。upstream PR がマージされ次第このオーバーライドを
   # 外して pub.dev 版に戻す。
-  # d7e0e08 (fix/winmm-stability): BLE connect() を購読完了まで待機 + 既接続なら
+  # 257af9c (fix/winmm-stability): BLE connect() を購読完了まで待機 + 既接続なら
   # 直接再購読 + 切断イベントでデバイスを登録簿から削除しない + ボンド不一致
   # (デバイス側の鍵喪失) を検知したら自動で unpair → 再ペアリングして修復
   flutter_midi_command_windows:
     git:
       url: https://github.com/kunichiko/flutter_midi_command_windows.git
-      ref: d7e0e08
+      ref: 257af9c
 
 dev_dependencies:
   flutter_test:
