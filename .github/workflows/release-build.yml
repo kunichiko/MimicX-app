@@ -761,3 +761,78 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: gh release upload "$env:GITHUB_REF_NAME" "${{ steps.installer.outputs.setup_path }}" --clobber
+
+  # Windows を Flutter の beta チャンネル (新しい Windows レンダラ等) でも追加ビルドし、
+  # MimicX_windows-<version>-FlutterBeta.zip として別途配布する。stable で ANGLE の
+  # 描画サーフェス生成に失敗して白窓になる一部 Windows 環境向けの検証用。
+  # beta は破壊的変更でビルドが壊れることがあるため continue-on-error でリリースを止めない。
+  windows_beta:
+    name: Build Windows (Flutter beta)
+    runs-on: windows-latest
+    needs: [prepare, release]
+    continue-on-error: true
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Flutter (beta)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: beta
+          cache: true
+
+      - name: Cache Windows native build (beta)
+        uses: actions/cache@v5
+        with:
+          path: |
+            build/windows
+            windows/flutter/ephemeral
+          key: windows-build-beta-${{ hashFiles('pubspec.lock', 'windows/CMakeLists.txt', 'windows/runner/**', 'windows/flutter/CMakeLists.txt') }}
+          restore-keys: |
+            windows-build-beta-
+
+      - name: Flutter doctor
+        run: flutter doctor -v
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Use prod identity (Windows)
+        shell: bash
+        run: |
+          cat > windows/runner/app_identity.h <<'EOF'
+          #pragma once
+          #define APP_DISPLAY_NAME L"Mimic X"
+          EOF
+
+      - name: Build Windows release (beta)
+        run: >
+          flutter build windows --release
+          --build-name=${{ needs.prepare.outputs.app_version }}
+          --build-number=${{ needs.prepare.outputs.build_number }}
+
+      - name: Package Windows zip (beta)
+        id: package
+        shell: pwsh
+        run: |
+          $version = "${{ needs.prepare.outputs.app_version }}"
+          $zipName = "MimicX_windows-$version-FlutterBeta.zip"
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath $zipName -Force
+          "zip_name=$zipName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload Windows beta artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: mimicx-windows-beta-${{ needs.prepare.outputs.app_version }}-${{ needs.prepare.outputs.build_number }}
+          path: ${{ steps.package.outputs.zip_name }}
+          retention-days: 14
+
+      - name: Upload Windows beta zip to GitHub Release
+        if: needs.prepare.outputs.is_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: gh release upload "$env:GITHUB_REF_NAME" "${{ steps.package.outputs.zip_name }}" --clobber
