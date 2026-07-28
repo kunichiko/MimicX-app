@@ -393,12 +393,6 @@ class X68kKeyboardSharedState extends ChangeNotifier {
     _loadPersistedRepeatSettings();
   }
 
-  /// この画面が前面 (アクティブ) か。Combined セッションで両画面を同時生存させると、
-  /// 背面 (非表示) のキーボードでも body の HardwareKeyboard グローバルハンドラは
-  /// 生きているため、これが false のとき物理キー送信を抑止する (前面のときだけ送る)。
-  /// 単機能ページでは常に true。
-  bool active = true;
-
   final Set<int> _ledOn = {};
   int _ledBrightness = 0;
   // キーリピート設定の初期値はファーム / プロトコル仕様の保守的なデフォルト。

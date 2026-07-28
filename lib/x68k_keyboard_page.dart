@@ -84,8 +84,6 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
     // (Standard は landscape、LineInput は unlock + IME)。Combined で背面の
     // ときは相手画面が制御するので何もしない。
     _shared = X68kKeyboardSharedState(serial: widget.serial);
-    // 物理キーボード送信の前面ガード (body の全域ハンドラが参照する)。
-    _shared.active = widget.active;
     // TARGET_RX を page で受けて shared に転送する。冪等パターン (既に同じ
     // closure なら触らない / dispose 時は自分がまだ active な時のみクリア)。
     widget.midi.onTargetRx = _onTargetRx;
@@ -135,16 +133,6 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
       widget.midi.sendNoteOff(widget.channel, insScancode);
       // X68000 側で LED 状態を更新 → LED 制御コマンドを返す処理に十分余裕を持たせる
       await Future.delayed(const Duration(milliseconds: 200));
-    }
-  }
-
-  @override
-  void didUpdateWidget(X68kKeyboardPage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // 前面/背面の切替を物理キーガードへ反映する (向き/IME は ModeScaffold が
-    // onActiveChanged 経由で処理する)。
-    if (widget.active != oldWidget.active) {
-      _shared.active = widget.active;
     }
   }
 
@@ -962,10 +950,11 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
   /// HardwareKeyboard コールバック。マップにあるキーだけハンドルし、それ以外は
   /// false を返して他のリスナ (OS ショートカット等) に処理を委譲する。
   bool _handlePhysicalKey(KeyEvent event) {
-    // Combined セッションで背面 (非表示) のときは物理キーを X68k に送らない。
-    // このハンドラは Focus 非依存の全域購読なので、ExcludeFocus では止まらず、
-    // ここで明示的にアクティブ状態を見てガードする必要がある。
-    if (!widget.shared.active) return false;
+    // 物理キーは表示中の画面 (キーボード / ジョイスティック) に関わらず X68k へ送る。
+    // このハンドラは HardwareKeyboard のグローバル購読で、Standard モードの body が
+    // 生存している間だけ登録される (ライン入力モードでは未登録なので TextField 入力を
+    // 邪魔しない)。Combined セッションでは Standard body が常時生存するため、
+    // ジョイスティック画面表示中でも物理キーボードがそのまま効く。
     // --- PC キーボードモード: 記号系を character ベースで横取り ---
     // KeyDown は mode が ON のときだけ判定する。一度 override に乗った物理キー
     // は KeyRepeat / KeyUp も同じ経路で完結させたいので、モード切替を跨いでも
@@ -993,7 +982,17 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
 
     // --- 通常 (X68k 配列モード) 経路: 物理位置 → X68k スキャンコード ---
     final scancode = _physicalKeyMap[event.physicalKey];
-    if (scancode == null) return false;
+    if (scancode == null) {
+      // マッピング外のキー。修飾キー併用 (Cmd/Ctrl/Alt) の OS ショートカットは
+      // OS に委ねる (return false)。それ以外の単キーは consume して NSBeep を抑止する
+      // (キーボード画面では body の Focus が消費するが、ジョイスティック画面では
+      //  この経路が唯一の消費者になる)。
+      final hw = HardwareKeyboard.instance;
+      if (hw.isMetaPressed || hw.isControlPressed || hw.isAltPressed) {
+        return false;
+      }
+      return true;
+    }
 
     if (event is KeyDownEvent) {
       _physicalKeyDown(scancode);
