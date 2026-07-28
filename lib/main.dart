@@ -331,6 +331,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
         );
       }
+      // 接続に失敗したら一覧を再読み込みする。電源 OFF などで消えたデバイスは
+      // プラグイン側で既に除去済みなので、これで UI からも消える (手動リロード不要)。
+      // まだ生きていれば再スキャンで残るので実害はない。
+      if (mounted) await _scanAndIdentify();
       return;
     }
     if (!mounted) return;
