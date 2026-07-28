@@ -167,8 +167,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: d2c6391
-      resolved-ref: d2c63910df0ae7039f5c1a4d8fbd4461dd547a90
+      ref: "7ff32b3"
+      resolved-ref: "7ff32b3b8565896f094d929005f81e19a436bcb3"
       url: "https://github.com/kunichiko/FlutterMidiCommand.git"
     source: git
     version: "0.5.4"
@@ -192,8 +192,8 @@ packages:
     dependency: "direct overridden"
     description:
       path: "."
-      ref: "95a3f6d"
-      resolved-ref: "95a3f6d961b7c6f22657a557874826ac335182d6"
+      ref: "423e3a6"
+      resolved-ref: "423e3a6d10c6810a26668a78c4ef555c5ec7c882"
       url: "https://github.com/kunichiko/flutter_midi_command_windows.git"
     source: git
     version: "0.3.0"

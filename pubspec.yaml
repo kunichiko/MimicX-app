@@ -40,7 +40,7 @@ dependencies:
   flutter_midi_command:
     git:
       url: https://github.com/kunichiko/FlutterMidiCommand.git
-      ref: d2c6391
+      ref: 7ff32b3
   shared_preferences: ^2.3.0
   # 漢字をライン入力モードで送るために Shift-JIS のテーブルを利用する。
   # (charset の組み込み Encoder は実装にバグがあって Unicode→SJIS が壊れている
@@ -69,7 +69,7 @@ dependency_overrides:
   flutter_midi_command_windows:
     git:
       url: https://github.com/kunichiko/flutter_midi_command_windows.git
-      ref: 95a3f6d
+      ref: 423e3a6
 
 dev_dependencies:
   flutter_test:
