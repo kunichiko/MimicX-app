@@ -538,6 +538,13 @@ class MidiService {
     _heartBeatConsecutiveFails = 0;
     _onHeartBeatFailure = onFailure;
     _heartBeatTimer = Timer.periodic(heartBeatInterval, (_) => _tickHeartBeat());
+    // 最初の 1 発を即送る。Timer.periodic は初回発火が 1 周期後 (1 秒後) のため、
+    // Combined のキーボード⇄ジョイスティック切替 (接続維持のまま画面差し替え) の
+    // 間にハートビートが途切れ、切替が長引くとファーム側の 3 秒 HB タイムアウトで
+    // ステータス LED が青(CONNECTED)→オレンジ(WAITING)に一瞬落ちることがあった。
+    // 即送でギャップを画面遷移時間だけに縮め、LED が落ちないようにする。
+    // (_tickHeartBeat は冒頭で _heartBeatTimer==null を弾くので timer 設定後に呼ぶ)
+    _tickHeartBeat();
   }
 
   /// HEART_BEAT 送信を停止する。画面を抜けるときに呼ぶ。
