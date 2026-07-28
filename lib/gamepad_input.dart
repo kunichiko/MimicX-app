@@ -29,7 +29,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:gamepads/gamepads.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'joystick_settings.dart';
 import 'midi_service.dart';
@@ -591,46 +590,3 @@ const Map<GamepadControl, int> md6GamepadMapping = {
   GamepadControl.start: MidiService.noteStart,
   GamepadControl.select: MidiService.noteMode,
 };
-
-/// ジョイスティック UI の外 (キーボード画面など) でゲームパッドを有効にするための
-/// 自己完結セッション。永続化された「直前のジョイスティックモード」(ATARI/MD6) の
-/// マッピングと連射設定で binder を構築する。Libble Rabble / MSX マウスが直前
-/// モードの場合はゲームパッド非対応なので ATARI にフォールバックする。
-class PersistedGamepadSession {
-  PersistedGamepadSession._(this.binder, this._settings);
-
-  final GamepadNoteBinder binder;
-  final JoystickSettings _settings;
-
-  static Future<PersistedGamepadSession> create(
-    MidiService midi, {
-    ValueNotifier<Set<int>>? pressedNotes,
-  }) async {
-    final prefs = await SharedPreferences.getInstance();
-    final modeId =
-        prefs.getString('joystick.selectedMode') ?? 'joystick.atari';
-    final isMd6 = modeId == 'joystick.md6';
-    final settings = JoystickSettings(
-      prefix: isMd6 ? 'joystick.md6' : 'joystick.atari',
-      defaultPadAssign:
-          defaultPadAssignOf(isMd6 ? md6GamepadMapping : atariGamepadMapping),
-    );
-    await settings.load();
-    // ファーム側のパッドモードも合わせる。失敗しても binder は作る
-    // (旧ファームでは NG が返るだけで実害なし)。
-    await midi.setPadMode(isMd6 ? 1 : 0);
-    final binder = GamepadNoteBinder(
-      midi: midi,
-      settings: settings,
-      mapping: isMd6 ? md6GamepadMapping : atariGamepadMapping,
-      pressedNotes: pressedNotes,
-      noteGate: isMd6 ? null : townsPadNoteGate(settings),
-    );
-    return PersistedGamepadSession._(binder, settings);
-  }
-
-  Future<void> dispose() async {
-    await binder.dispose();
-    _settings.dispose();
-  }
-}

@@ -30,12 +30,23 @@ class JoystickPage extends StatefulWidget {
   /// 表示する。null なら非表示 (従来どおり単機能ページ)。
   final VoidCallback? onSwitchToKeyboard;
 
+  /// この画面が前面 (アクティブ) か。Combined セッションで IndexedStack に同時
+  /// 生存させる際、前面のときだけ画面の向きを制御する。単機能ページでは常に true。
+  final bool active;
+
+  /// ハートビートをこのページ自身で管理するか。Combined セッションでは
+  /// ホスト (CombinedSessionPage) が 1 本所有するので false を渡す。
+  /// 単機能ページでは true (従来どおりページが start/stop)。
+  final bool manageHeartBeat;
+
   const JoystickPage({
     super.key,
     required this.midi,
     this.channel = MidiService.chJoystickDefault,
     this.deviceName,
     this.onSwitchToKeyboard,
+    this.active = true,
+    this.manageHeartBeat = true,
   });
 
   @override
@@ -48,8 +59,9 @@ class _JoystickPageState extends State<JoystickPage> {
   @override
   void initState() {
     super.initState();
-    // 横向き固定 (Android では auto-rotate ロックを無視して両方向許容)
-    OrientationHelper.landscape();
+    // 横向き固定は前面のときだけ (Combined で背面のときは相手画面の向きを尊重)。
+    // Android では auto-rotate ロックを無視して両方向許容。
+    if (widget.active) OrientationHelper.landscape();
     _modes = [
       AtariMode(channel: widget.channel),
       Md6Mode(channel: widget.channel),
@@ -58,7 +70,19 @@ class _JoystickPageState extends State<JoystickPage> {
     ];
     // 操作画面に入っている間は HB を送り続ける。3 秒応答が無ければ "CONN_LOST"
     // を結果にして自動 pop。HomePage 側で再 scan される。
-    widget.midi.startHeartBeat(onFailure: _onHeartBeatFailure);
+    // Combined セッションではホストが HB を所有するのでページ側では管理しない。
+    if (widget.manageHeartBeat) {
+      widget.midi.startHeartBeat(onFailure: _onHeartBeatFailure);
+    }
+  }
+
+  @override
+  void didUpdateWidget(JoystickPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 背面→前面になったら横向きを再適用する (全 joystick モードが landscape)。
+    if (widget.active && !oldWidget.active) {
+      OrientationHelper.landscape();
+    }
   }
 
   void _onHeartBeatFailure() {
@@ -71,7 +95,8 @@ class _JoystickPageState extends State<JoystickPage> {
     // HB だけ早めに止めておく。DISCONNECT 送信 + USB close は親 (main.dart)
     // が Navigator.push の await 後にまとめて行う (dispose 順が USB close より
     // 遅れて DISCONNECT が届かなくなるのを避けるため)。
-    widget.midi.stopHeartBeat();
+    // Combined セッションではホストが HB を所有するのでページ側では止めない。
+    if (widget.manageHeartBeat) widget.midi.stopHeartBeat();
     for (final m in _modes) {
       m.dispose();
     }
@@ -86,6 +111,7 @@ class _JoystickPageState extends State<JoystickPage> {
       subtitle: widget.deviceName,
       midi: widget.midi,
       modes: _modes,
+      active: widget.active,
       persistenceKey: 'joystick.selectedMode',
       extraActions: [
         if (widget.onSwitchToKeyboard != null)

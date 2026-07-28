@@ -4,10 +4,10 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'about_page.dart';
+import 'combined_session_page.dart';
 import 'device_nickname_store.dart';
 import 'device_rename_page.dart';
 import 'l10n/app_localizations.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'midi_service.dart';
 import 'protocol.dart';
@@ -440,9 +440,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  /// Combined デバイスの同時セッション。キーボード⇄ジョイスティック画面を
-  /// AppBar のボタンで行き来し (pop result 'SWITCH_*')、その間 MIDI 接続は
-  /// 維持される。最後に表示していた画面を記憶して次回の初期画面にする。
+  /// Combined デバイスの同時セッション。キーボード画面とジョイスティック画面を
+  /// CombinedSessionPage が IndexedStack で同時生存させ、その中で切り替える
+  /// (両画面が生きているのでゲームパッドはキーボード表示中も効き、ハートビートは
+  /// ホストが 1 本所有するので切替で途切れない)。pop result は CONN_LOST か null。
   void _runCombinedSession(
     MidiDeviceInfo device,
     ChannelAssignment joyCh,
@@ -450,44 +451,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     ChannelAssignment mouseCh,
   ) async {
     final deviceName = _displayNameFor(device);
-    final prefs = await SharedPreferences.getInstance();
-    var screen = prefs.getString('combined.lastScreen') ?? 'keyboard';
-
-    String? popResult;
-    while (true) {
-      final Widget page;
-      if (screen == 'joystick') {
-        page = JoystickPage(
+    final popResult = await Navigator.of(context).push<String?>(
+      MaterialPageRoute(
+        builder: (_) => CombinedSessionPage(
           midi: _midi,
-          channel: joyCh.midiChannel,
-          deviceName: deviceName,
-          onSwitchToKeyboard: () =>
-              Navigator.of(context).pop('SWITCH_KEYBOARD'),
-        );
-      } else {
-        page = X68kKeyboardPage(
-          midi: _midi,
-          channel: kbCh.midiChannel,
+          joystickChannel: joyCh.midiChannel,
+          keyboardChannel: kbCh.midiChannel,
           mouseChannel: mouseCh.midiChannel,
           deviceName: deviceName,
           serial: device.identity?.serial,
-          enableGamepad: true,
-          onSwitchToJoystick: () =>
-              Navigator.of(context).pop('SWITCH_JOYSTICK'),
-        );
-      }
-      if (!mounted) return;
-      popResult = await Navigator.of(context)
-          .push<String?>(MaterialPageRoute(builder: (_) => page));
-      if (popResult == 'SWITCH_KEYBOARD') {
-        screen = 'keyboard';
-      } else if (popResult == 'SWITCH_JOYSTICK') {
-        screen = 'joystick';
-      } else {
-        break; // 戻る or CONN_LOST → セッション終了
-      }
-      await prefs.setString('combined.lastScreen', screen);
-    }
+        ),
+      ),
+    );
     await _finishSession(popResult);
   }
 

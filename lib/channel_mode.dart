@@ -42,6 +42,13 @@ abstract class ChannelMode extends ChangeNotifier {
   /// このモードを抜ける時 (別モードに切替 / ページ unmount) に呼ばれる。
   Future<void> onExit(MidiService midi) async {}
 
+  /// このモードを載せている画面のアクティブ (前面表示) 状態が変わったときに
+  /// 呼ばれる。Combined セッションでは複数ページが同時に生存するため、画面の
+  /// 向き (OrientationHelper) や IME 有効化のような「前面の 1 画面だけが持つべき
+  /// 副作用」はここで active に応じて適用する (onEnter は 1 回だけの副作用専用)。
+  /// 単機能ページでは常に active=true で 1 度呼ばれる。既定は何もしない。
+  void onActiveChanged(bool active, MidiService midi) {}
+
   /// このモードの操作 UI 本体。Scaffold.body に挿入される想定。
   Widget buildBody(BuildContext context, MidiService midi);
 

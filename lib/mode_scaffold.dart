@@ -33,6 +33,11 @@ class ModeScaffold extends StatefulWidget {
   /// AppBar の actions 末尾に追加するウィジェット (設定アイコン以外のページ独自項目)。
   final List<Widget> extraActions;
 
+  /// この画面が前面 (アクティブ) かどうか。Combined セッションで複数ページを
+  /// IndexedStack に同時生存させる際、前面の 1 画面だけが向き/IME 等を制御する
+  /// ために使う。単機能ページでは常に true。
+  final bool active;
+
   const ModeScaffold({
     super.key,
     required this.title,
@@ -41,6 +46,7 @@ class ModeScaffold extends StatefulWidget {
     required this.modes,
     this.persistenceKey,
     this.extraActions = const [],
+    this.active = true,
   }) : assert(modes.length > 0, 'modes must contain at least one ChannelMode');
 
   @override
@@ -69,6 +75,21 @@ class _ModeScaffoldState extends State<ModeScaffold> {
     final err = await _current.onEnter(widget.midi);
     if (err != null && mounted) {
       _showEnterError(_current, err);
+    }
+    // 前面のときだけ向き/IME 等のアクティブ依存副作用を適用する。
+    // (非前面のページは didUpdateWidget で active=true になったときに適用)
+    if (mounted && widget.active) {
+      _current.onActiveChanged(true, widget.midi);
+    }
+  }
+
+  @override
+  void didUpdateWidget(ModeScaffold oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active != oldWidget.active) {
+      // 画面の前面/背面が切り替わった。前面化した画面が向き/IME を再適用し、
+      // 背面化した画面は解除する。
+      _current.onActiveChanged(widget.active, widget.midi);
     }
   }
 
@@ -122,7 +143,14 @@ class _ModeScaffoldState extends State<ModeScaffold> {
         if (mounted) _showEnterError(next, err);
         if (mounted) setState(() => _current = previous);
         await previous.onEnter(widget.midi);
+        if (mounted && widget.active) {
+          previous.onActiveChanged(true, widget.midi);
+        }
         return;
+      }
+      // 新モードのアクティブ依存副作用 (向き/IME) を前面のときだけ適用する。
+      if (mounted && widget.active) {
+        next.onActiveChanged(true, widget.midi);
       }
       await _persistSelectedMode(next);
     } finally {

@@ -12,7 +12,6 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'channel_mode.dart';
 import 'l10n/app_localizations.dart';
-import 'gamepad_input.dart';
 import 'midi_service.dart';
 import 'mode_scaffold.dart';
 import 'orientation_helper.dart';
@@ -47,10 +46,14 @@ class X68kKeyboardPage extends StatefulWidget {
   /// 表示する。null なら非表示 (従来どおり単機能ページ)。
   final VoidCallback? onSwitchToJoystick;
 
-  /// true ならこの画面の表示中も物理ゲームパッド → ジョイスティックチャンネルの
-  /// 入力を有効にする (Combined デバイスの同時セッション用)。マッピング/連射は
-  /// 直前に選択されていたジョイスティックモード (ATARI/MD6) に従う。
-  final bool enableGamepad;
+  /// この画面が前面 (アクティブ) か。Combined セッションで IndexedStack に同時
+  /// 生存させる際、前面のときだけ画面の向き・IME・物理キーボード送信を有効にする。
+  /// 単機能ページでは常に true。
+  final bool active;
+
+  /// ハートビートをこのページ自身で管理するか。Combined セッションでは
+  /// ホスト (CombinedSessionPage) が 1 本所有するので false を渡す。
+  final bool manageHeartBeat;
 
   const X68kKeyboardPage({
     super.key,
@@ -60,7 +63,8 @@ class X68kKeyboardPage extends StatefulWidget {
     this.deviceName,
     this.serial,
     this.onSwitchToJoystick,
-    this.enableGamepad = false,
+    this.active = true,
+    this.manageHeartBeat = true,
   });
 
   @override
@@ -73,25 +77,15 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
   late final X68kKeyboardSharedState _shared;
   late final List<ChannelMode> _modes;
 
-  /// enableGamepad 時のゲームパッドセッション (非同期生成)。
-  PersistedGamepadSession? _gamepadSession;
-  bool _gamepadDisposed = false;
-
   @override
   void initState() {
     super.initState();
-    if (widget.enableGamepad) {
-      PersistedGamepadSession.create(widget.midi).then((session) {
-        if (_gamepadDisposed) {
-          session.dispose();
-        } else {
-          _gamepadSession = session;
-        }
-      });
-    }
-    // 向きは各モードの onEnter で制御する (Standard は landscape 固定、
-    // LineInput は unlock で任意の向き許可)。
+    // 向きと IME は各モードの onActiveChanged で「前面のときだけ」制御する
+    // (Standard は landscape、LineInput は unlock + IME)。Combined で背面の
+    // ときは相手画面が制御するので何もしない。
     _shared = X68kKeyboardSharedState(serial: widget.serial);
+    // 物理キーボード送信の前面ガード (body の全域ハンドラが参照する)。
+    _shared.active = widget.active;
     // TARGET_RX を page で受けて shared に転送する。冪等パターン (既に同じ
     // closure なら触らない / dispose 時は自分がまだ active な時のみクリア)。
     widget.midi.onTargetRx = _onTargetRx;
@@ -116,7 +110,10 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
     Future.delayed(const Duration(milliseconds: 500), _syncLedState);
     // 操作画面に入っている間は HB を送り続ける。3 秒応答が無ければ "CONN_LOST"
     // を結果にして自動 pop。HomePage 側で再 scan される。
-    widget.midi.startHeartBeat(onFailure: _onHeartBeatFailure);
+    // Combined セッションではホストが HB を所有するのでページ側では管理しない。
+    if (widget.manageHeartBeat) {
+      widget.midi.startHeartBeat(onFailure: _onHeartBeatFailure);
+    }
   }
 
   void _onHeartBeatFailure() {
@@ -142,13 +139,21 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
   }
 
   @override
+  void didUpdateWidget(X68kKeyboardPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 前面/背面の切替を物理キーガードへ反映する (向き/IME は ModeScaffold が
+    // onActiveChanged 経由で処理する)。
+    if (widget.active != oldWidget.active) {
+      _shared.active = widget.active;
+    }
+  }
+
+  @override
   void dispose() {
-    _gamepadDisposed = true;
-    _gamepadSession?.dispose();
-    _gamepadSession = null;
     // HB だけ早めに止めておく (joystick_page と同じ理由)。DISCONNECT 送信 +
     // USB close は親 (main.dart) が Navigator.push の await 後にまとめて行う。
-    widget.midi.stopHeartBeat();
+    // Combined セッションではホストが HB を所有するのでページ側では止めない。
+    if (widget.manageHeartBeat) widget.midi.stopHeartBeat();
     if (widget.midi.onTargetRx == _onTargetRx) {
       widget.midi.onTargetRx = null;
     }
@@ -166,6 +171,7 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
       subtitle: widget.deviceName,
       midi: widget.midi,
       modes: _modes,
+      active: widget.active,
       persistenceKey: 'x68k_keyboard.selectedMode',
       extraActions: [
         if (widget.onSwitchToJoystick != null)
@@ -291,10 +297,11 @@ class StandardX68kMode extends ChannelMode {
   String label(BuildContext context) => '標準';
 
   @override
-  Future<String?> onEnter(MidiService midi) async {
-    // キーボードレイアウトは横向き専用。
-    await OrientationHelper.landscape();
-    return null;
+  @override
+  void onActiveChanged(bool active, MidiService midi) {
+    // キーボードレイアウトは横向き専用。前面のときだけ向きを固定する
+    // (Combined で背面のときは相手画面の向きを尊重)。
+    if (active) OrientationHelper.landscape();
   }
 
   void _toggleNumpad() {
@@ -955,6 +962,10 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
   /// HardwareKeyboard コールバック。マップにあるキーだけハンドルし、それ以外は
   /// false を返して他のリスナ (OS ショートカット等) に処理を委譲する。
   bool _handlePhysicalKey(KeyEvent event) {
+    // Combined セッションで背面 (非表示) のときは物理キーを X68k に送らない。
+    // このハンドラは Focus 非依存の全域購読なので、ExcludeFocus では止まらず、
+    // ここで明示的にアクティブ状態を見てガードする必要がある。
+    if (!widget.shared.active) return false;
     // --- PC キーボードモード: 記号系を character ベースで横取り ---
     // KeyDown は mode が ON のときだけ判定する。一度 override に乗った物理キー
     // は KeyRepeat / KeyUp も同じ経路で完結させたいので、モード切替を跨いでも
@@ -2038,17 +2049,21 @@ class LineInputMode extends ChannelMode {
   String label(BuildContext context) => 'ライン入力';
 
   @override
-  Future<String?> onEnter(MidiService midi) async {
-    // ライン入力は portrait / landscape どちらでも使えるよう向きの固定を解除。
-    await OrientationHelper.unlock();
-    // 漢字入力のため Windows IME を有効化する (他モードでは無効)。
-    await WindowsIme.setEnabled(true);
-    return null;
+  void onActiveChanged(bool active, MidiService midi) {
+    if (active) {
+      // ライン入力は portrait / landscape どちらでも使えるよう向きの固定を解除。
+      OrientationHelper.unlock();
+      // 漢字入力のため Windows IME を有効化する (他モード/他画面では無効)。
+      WindowsIme.setEnabled(true);
+    } else {
+      // 背面化したら IME を無効に戻す (前面の画面がキー入力を奪われないよう)。
+      WindowsIme.setEnabled(false);
+    }
   }
 
   @override
   Future<void> onExit(MidiService midi) async {
-    // 他モード/他画面では IME がキー入力を奪わないよう無効に戻す。
+    // 他モードへ切り替えるとき IME を無効に戻す (背面化は onActiveChanged で処理)。
     await WindowsIme.setEnabled(false);
   }
 
@@ -2579,10 +2594,10 @@ class TvRemoteMode extends ChannelMode {
   String label(BuildContext context) => 'TVリモコン';
 
   @override
-  Future<String?> onEnter(MidiService midi) async {
+  void onActiveChanged(bool active, MidiService midi) {
     // リモコンは portrait が自然だが、landscape でも使えるよう向き固定は解除。
-    await OrientationHelper.unlock();
-    return null;
+    // 前面のときだけ適用 (背面のときは相手画面の向きを尊重)。
+    if (active) OrientationHelper.unlock();
   }
 
   @override
