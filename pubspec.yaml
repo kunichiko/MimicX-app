@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.7.0+30
+version: 1.7.1+31
 
 environment:
   sdk: ^3.8.1
@@ -70,6 +70,19 @@ dependency_overrides:
     git:
       url: https://github.com/kunichiko/flutter_midi_command_windows.git
       ref: 3bb2b88
+  # Windows: gamepads_windows 0.1.4+1 (= gamepads 0.1.8 が使う winmm 実装) の
+  # read_gamepad ポーリングループが sleep なしのビジーループで、ジョイスティック
+  # デバイスが 1 台でも列挙されるとアプリ起動時から 1 論理コアを張り付かせ、
+  # どの画面でもアイドルで約 8% CPU を消費していた (一覧表示中でも)。フォークで
+  # ループに Sleep(8) (~125Hz) を入れて解消 (実機で 8.4%→0.5%)。upstream の修正
+  # (0.3.0) は WinRT/GameInput への全面書き換えで gameinput.dll にロード時リンク
+  # するため Win10 で起動不能になり得るので採用しない (0.1.8 pin と同じ理由)。
+  # イベント形式は winmm のまま不変なので lib/gamepad_input.dart は無変更。
+  gamepads_windows:
+    git:
+      url: https://github.com/kunichiko/gamepads.git
+      path: packages/gamepads_windows
+      ref: 79a826e
 
 dev_dependencies:
   flutter_test:
