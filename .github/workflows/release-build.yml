@@ -680,9 +680,16 @@ jobs:
           path: |
             build/windows
             windows/flutter/ephemeral
-          key: windows-build-${{ hashFiles('pubspec.lock', 'windows/CMakeLists.txt', 'windows/runner/**', 'windows/flutter/CMakeLists.txt') }}
+          # NOTE: prefix must be `windows-build-stable-`, NOT `windows-build-`.
+          # The beta job below caches under `windows-build-beta-*`; a bare
+          # `windows-build-` restore-key prefix-matches those beta caches and
+          # restores beta's windows/flutter/ephemeral (newer engine) into this
+          # stable build, causing linker errors (e.g. unresolved
+          # FlutterDesktopEngineIsPlatformThread — a symbol only the newer beta
+          # engine exports). Keep the two channels in separate cache namespaces.
+          key: windows-build-stable-${{ hashFiles('pubspec.lock', 'windows/CMakeLists.txt', 'windows/runner/**', 'windows/flutter/CMakeLists.txt') }}
           restore-keys: |
-            windows-build-
+            windows-build-stable-
 
       - name: Flutter doctor
         run: flutter doctor -v
