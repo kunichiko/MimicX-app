@@ -81,6 +81,23 @@ endif()
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
+# App-local MSVC runtime (VC++ 2015-2022 redistributable) ===================
+# VCRUNTIME140.dll / VCRUNTIME140_1.dll / MSVCP140.dll を exe と同じフォルダへ
+# 同梱する。これが無いと、VC++ 再頒布可能パッケージを一度も入れていない素の
+# Windows で mimicx.exe が "VCRUNTIME140_1.dll が見つからない" で起動できない
+# (開発機/CI ランナーには Visual Studio 経由で必ず入っているため再現しない)。
+# Windows は exe と同じフォルダの DLL を最優先で探すので、システム未インストール
+# でも動く。Inno Setup 側は Release フォルダ配下を丸ごと拾うため .iss は無変更。
+# Universal CRT (ucrtbase.dll 等) は Windows 10+ が OS 標準で持つので同梱しない。
+# SKIP を立てて自動 install ルール生成を止め、配布する Profile/Release にだけ
+# 明示的に install(FILES ...) する。
+set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
+include(InstallRequiredSystemLibraries)
+install(FILES ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS}
+  DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  CONFIGURATIONS Profile;Release
+  COMPONENT Runtime)
+
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
