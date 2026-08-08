@@ -37,10 +37,14 @@ dependencies:
   # flutter_midi_command: ^0.5.4   ← 旧 (upstream には SPM 対応未マージ)
   # SPM 対応 + Android 接続 2.5s 待ちの除去のため一時的にフォークを利用する。
   # upstream PR がマージされ次第 pub.dev 版に戻すこと。
+  # 6c343c0: iOS/macOS の MethodChannel 二重応答を解消 (disconnectDevice の
+  # 末尾にあった無条件 result(nil) を削除 + native/virtual の接続成功時も
+  # ongoingConnections から removeValue してから返す)。修正前は起動時の識別
+  # フローの切断ごとに "Message responses can be sent only once" が出ていた。
   flutter_midi_command:
     git:
       url: https://github.com/kunichiko/FlutterMidiCommand.git
-      ref: 7ff32b3
+      ref: 6c343c0
   shared_preferences: ^2.3.0
   # 漢字をライン入力モードで送るために Shift-JIS のテーブルを利用する。
   # (charset の組み込み Encoder は実装にバグがあって Unicode→SJIS が壊れている
