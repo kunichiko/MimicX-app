@@ -55,6 +55,56 @@ enum GamepadControl {
 /// 方向判定に使う軸の種類 (up = +1 / right = +1 に正規化して保持する)。
 enum _Axis { dpadX, dpadY, stickX, stickY }
 
+// ===================================================================================
+// 入力タイミング計測 (--dart-define=GAMEPAD_TIMING_LOG=true で有効)
+//
+// 「方向を一瞬入力したのに余計に動く / カクつく」の切り分け用。押してから離すまでの
+// 保持時間と、押し始めの周期を単調時計で測り、ばらつき (標準偏差) を出す。
+//
+// 読み方: 一定リズムで押したとき
+//   - period の sd が小さいのに hold の sd が大きい → **離しの検出がばらついている**
+//     (= 入力経路 or 判定ロジック側の問題)
+//   - period の sd も同じくらい大きい → 手の揺らぎ。系の問題とは言えない
+//   - hold が押した体感より一貫して長い → 離しが一律に遅れている (定常遅延)
+//
+// 注: OS がイベントを記録した時刻は使えない。gamepads_darwin が
+// `"time": Int(getTimestamp(...))` で TimeInterval(秒) を Int に切り捨てており、
+// ms 分解能が残らないため (取るならプラグイン側の修正が要る)。
+// ===================================================================================
+
+/// 計測ログの有効/無効。既定 false なので通常ビルドには一切影響しない。
+const bool kGamepadTimingLog = bool.fromEnvironment('GAMEPAD_TIMING_LOG');
+
+/// 逐次更新できる最小限の統計量 (件数 / 最小 / 最大 / 平均 / 標準偏差)。
+class _TimingStats {
+  int n = 0;
+  double min = double.infinity;
+  double max = 0;
+  double _sum = 0;
+  double _sumSq = 0;
+
+  void add(double v) {
+    n++;
+    if (v < min) min = v;
+    if (v > max) max = v;
+    _sum += v;
+    _sumSq += v * v;
+  }
+
+  double get mean => n == 0 ? 0 : _sum / n;
+
+  double get sd {
+    if (n < 2) return 0;
+    final m = mean;
+    return math.sqrt(math.max(0, _sumSq / n - m * m));
+  }
+
+  String get summary => n == 0
+      ? '-'
+      : '${min.toStringAsFixed(1)}/${mean.toStringAsFixed(1)}/'
+          '${max.toStringAsFixed(1)} sd=${sd.toStringAsFixed(1)}';
+}
+
 /// 方向判定のソース。十字キーと左スティックは **独立に** ヒステリシス判定して
 /// 最後に OR する。両者を合成 (max) してから 1 本のヒステリシスに掛けると、
 /// 十字キーを離しても反対ソース (スティック) の残留値が release 閾値を跨いで
@@ -84,6 +134,14 @@ class GamepadInput {
   /// 通知済みの合成押下集合。
   final Set<GamepadControl> _merged = {};
 
+  // --- 計測用 (kGamepadTimingLog が false のときは一切触らない) ---
+  final Stopwatch _clock = Stopwatch()..start();
+  final Map<GamepadControl, double> _pressedAtMs = {};
+  final Map<GamepadControl, double> _prevPressAtMs = {};
+  final Map<GamepadControl, double> _prevReleaseAtMs = {};
+  final Map<GamepadControl, _TimingStats> _holdStats = {};
+  final Map<GamepadControl, _TimingStats> _periodStats = {};
+
   // アナログ→デジタル変換のヒステリシス閾値。斜め入力 (45° = 0.707) が
   // 両軸とも press になるよう press 閾値は 0.707 未満にする。
   static const double _pressThreshold = 0.55;
@@ -110,6 +168,8 @@ class GamepadInput {
       perId.clear();
     }
     _buttonState.clear();
+    // 合成 release は計測に混ぜない (_logTiming 側も pressedAt 無しで無視する)
+    _pressedAtMs.clear();
     for (final c in _merged.toList()) {
       _merged.remove(c);
       onControl(c, false);
@@ -375,12 +435,47 @@ class GamepadInput {
     // と解釈して誤発動するため、必ず反対方向の解放を先に流す。
     for (final c in _merged.difference(next).toList()) {
       _merged.remove(c);
-      onControl(c, false);
+      _notify(c, false);
     }
     for (final c in next.difference(_merged)) {
       _merged.add(c);
-      onControl(c, true);
+      _notify(c, true);
     }
+  }
+
+  /// 押下変化の通知口。計測ログが有効なときだけ時刻を記録してから通知する。
+  void _notify(GamepadControl control, bool pressed) {
+    if (kGamepadTimingLog) _logTiming(control, pressed);
+    onControl(control, pressed);
+  }
+
+  /// release のたびに 1 行出す。hold = 押してから離すまで、period = 前回の押し始め
+  /// からの間隔、off = 前回離してから今回押すまで。統計は控えめに同じ行へ畳む。
+  void _logTiming(GamepadControl control, bool pressed) {
+    final nowMs = _clock.elapsedMicroseconds / 1000.0;
+    if (pressed) {
+      _pressedAtMs[control] = nowMs;
+      return;
+    }
+    final pressedAt = _pressedAtMs.remove(control);
+    if (pressedAt == null) return; // stop() 由来の合成 release など
+    final hold = nowMs - pressedAt;
+    final prevPress = _prevPressAtMs[control];
+    final prevRelease = _prevReleaseAtMs[control];
+    final period = prevPress == null ? null : pressedAt - prevPress;
+    final off = prevRelease == null ? null : pressedAt - prevRelease;
+    _prevPressAtMs[control] = pressedAt;
+    _prevReleaseAtMs[control] = nowMs;
+
+    final hs = _holdStats.putIfAbsent(control, () => _TimingStats())..add(hold);
+    final ps = _periodStats.putIfAbsent(control, () => _TimingStats());
+    if (period != null) ps.add(period);
+
+    String ms(double? v) => v == null ? '-' : '${v.toStringAsFixed(1)}ms';
+    debugPrint('[gp] ${control.name.padRight(6)}'
+        ' hold=${ms(hold)} off=${ms(off)} period=${ms(period)}'
+        ' | n=${hs.n} hold(min/avg/max)=${hs.summary}'
+        ' | period(min/avg/max)=${ps.summary}');
   }
 }
 

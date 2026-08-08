@@ -5,6 +5,9 @@ import 'dart:ui' show VoidCallback;
 import 'package:flutter_midi_command/flutter_midi_command.dart';
 import 'protocol.dart';
 
+/// アダプタ往復時間の計測ログ (既定 false。通常ビルドには影響しない)。
+const bool kMidiRttLog = bool.fromEnvironment('MIDI_RTT_LOG');
+
 class MidiDeviceInfo {
   final String name;
   final String id;
@@ -585,17 +588,49 @@ class MidiService {
     sendSysEx(SysExBuilder.disconnect(reqId));
   }
 
+  // --- アダプタ往復時間の計測 (--dart-define=MIDI_RTT_LOG=true) --------------
+  //
+  // ノート (NoteOn/Off) は fire-and-forget で ACK が無いため、ノート自体の片道
+  // 遅延は測れない。HEART_BEAT は SysEx + ACK の往復なので、既存トラフィックを
+  // そのまま使って **アプリ → アダプタ → アプリ** のリンク往復時間を 1 秒ごとに
+  // サンプルできる。入力のカクつきと同時にここが伸びていればリンク側、
+  // 伸びていなければリンクより手前 (入力経路) の問題と切り分けられる。
+  int _rttCount = 0;
+  double _rttMin = double.infinity;
+  double _rttMax = 0;
+  double _rttSum = 0;
+
+  void _logRtt(double ms, bool ok) {
+    if (!ok) {
+      // ignore: avoid_print
+      print('[rtt] HEART_BEAT ACK なし (timeout) ${ms.toStringAsFixed(1)}ms');
+      return;
+    }
+    _rttCount++;
+    if (ms < _rttMin) _rttMin = ms;
+    if (ms > _rttMax) _rttMax = ms;
+    _rttSum += ms;
+    // ignore: avoid_print
+    print('[rtt] ${ms.toStringAsFixed(1)}ms'
+        ' (${_bleConnected ? "BLE" : "USB"}, n=$_rttCount'
+        ' min/avg/max=${_rttMin.toStringAsFixed(1)}/'
+        '${(_rttSum / _rttCount).toStringAsFixed(1)}/'
+        '${_rttMax.toStringAsFixed(1)})');
+  }
+
   Future<void> _tickHeartBeat() async {
     // タイマー側からの async tick: 走行中にユーザーが画面を抜けたら timer は
     // cancel されているはずだが、in-flight な ACK 待ちが残ることがあるので
     // 多重実行に強い書き方にしておく。
     if (_heartBeatTimer == null) return;
     final reqId = _reqIdAllocator.allocate();
+    final rtt = kMidiRttLog ? (Stopwatch()..start()) : null;
     final result = await _sendAndWait(
       reqId: reqId,
       sysex: SysExBuilder.heartBeat(reqId),
       timeout: heartBeatTimeout,
     );
+    if (rtt != null) _logRtt(rtt.elapsedMicroseconds / 1000.0, result.isOk);
     if (_heartBeatTimer == null) return;  // tick 完了前に stop された
     if (result.isOk) {
       _heartBeatConsecutiveFails = 0;
