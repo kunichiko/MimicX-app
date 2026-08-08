@@ -55,6 +55,13 @@ enum GamepadControl {
 /// 方向判定に使う軸の種類 (up = +1 / right = +1 に正規化して保持する)。
 enum _Axis { dpadX, dpadY, stickX, stickY }
 
+/// 方向判定のソース。十字キーと左スティックは **独立に** ヒステリシス判定して
+/// 最後に OR する。両者を合成 (max) してから 1 本のヒステリシスに掛けると、
+/// 十字キーを離しても反対ソース (スティック) の残留値が release 閾値を跨いで
+/// いる間は方向が押されたままになり、「一瞬だけ入れたのに余計に動く」現象を
+/// 起こすため。
+enum _DirSource { dpad, stick }
+
 /// GamepadEvent をデコードして論理コントロールの押下変化を通知する。
 class GamepadInput {
   GamepadInput({required this.onControl});
@@ -67,7 +74,11 @@ class GamepadInput {
   // gamepadId ごとの状態。複数コントローラー接続時は最終的に OR 合成する。
   final Map<String, Map<_Axis, double>> _axes = {};
   final Map<String, Set<GamepadControl>> _digitalDirs = {}; // Android の DPAD キー
-  final Map<String, Set<GamepadControl>> _dirState = {}; // ヒステリシス後の方向
+  // ヒステリシス後の方向。ソース (十字キー / スティック) ごとに独立に持つ。
+  final Map<_DirSource, Map<String, Set<GamepadControl>>> _dirState = {
+    _DirSource.dpad: {},
+    _DirSource.stick: {},
+  };
   final Map<String, Set<GamepadControl>> _buttonState = {};
 
   /// 通知済みの合成押下集合。
@@ -77,6 +88,13 @@ class GamepadInput {
   // 両軸とも press になるよう press 閾値は 0.707 未満にする。
   static const double _pressThreshold = 0.55;
   static const double _releaseThreshold = 0.35;
+
+  /// アナログスティックのデッドゾーン。中立でも完全に 0 は返らない
+  /// (個体差・経年のオフセット) ため、この範囲は 0 に丸めてから方向判定する。
+  /// これを入れないと、わずかなオフセットでも release 閾値 (0.35) を割らずに
+  /// 方向が解放されないままになる。斜め入力を潰さないよう press 閾値より
+  /// 十分小さく取る。十字キーは元がデジタルなので適用しない。
+  static const double _stickDeadzone = 0.2;
 
   void start() {
     _sub ??= Gamepads.events.listen(_onEvent);
@@ -88,7 +106,9 @@ class GamepadInput {
     _sub = null;
     _axes.clear();
     _digitalDirs.clear();
-    _dirState.clear();
+    for (final perId in _dirState.values) {
+      perId.clear();
+    }
     _buttonState.clear();
     for (final c in _merged.toList()) {
       _merged.remove(c);
@@ -284,21 +304,32 @@ class GamepadInput {
     pressed ? set.add(control) : set.remove(control);
   }
 
-  /// 方向のアナログ信号強度 (0 以上)。dpad とスティックの強い方を採用する。
-  double _dirSignal(Map<_Axis, double> axes, GamepadControl dir) {
+  /// [src] 単体での方向の信号強度 (0 以上)。ソースを跨いだ合成はしない
+  /// ([_DirSource] のコメント参照)。スティックはデッドゾーンを適用する。
+  double _dirSignal(Map<_Axis, double> axes, GamepadControl dir, _DirSource src) {
+    final double x, y;
+    if (src == _DirSource.dpad) {
+      x = axes[_Axis.dpadX] ?? 0;
+      y = axes[_Axis.dpadY] ?? 0;
+    } else {
+      x = _applyDeadzone(axes[_Axis.stickX] ?? 0);
+      y = _applyDeadzone(axes[_Axis.stickY] ?? 0);
+    }
     switch (dir) {
       case GamepadControl.up:
-        return math.max(axes[_Axis.dpadY] ?? 0, axes[_Axis.stickY] ?? 0);
+        return y;
       case GamepadControl.down:
-        return math.max(-(axes[_Axis.dpadY] ?? 0), -(axes[_Axis.stickY] ?? 0));
+        return -y;
       case GamepadControl.left:
-        return math.max(-(axes[_Axis.dpadX] ?? 0), -(axes[_Axis.stickX] ?? 0));
+        return -x;
       case GamepadControl.right:
-        return math.max(axes[_Axis.dpadX] ?? 0, axes[_Axis.stickX] ?? 0);
+        return x;
       default:
         return 0;
     }
   }
+
+  static double _applyDeadzone(double v) => v.abs() < _stickDeadzone ? 0 : v;
 
   static const List<GamepadControl> _dirs = [
     GamepadControl.up,
@@ -310,22 +341,29 @@ class GamepadInput {
   void _recompute(String id) {
     final axes = _axes[id] ?? const {};
     final digital = _digitalDirs[id] ?? const {};
-    final dirState = _dirState.putIfAbsent(id, () => {});
 
-    for (final dir in _dirs) {
-      final signal = _dirSignal(axes, dir);
-      final wasPressed = dirState.contains(dir);
-      // ヒステリシス: press は 0.55 超え、release は 0.35 未満で判定。
-      // Android のデジタル DPAD キーは無条件で press 扱い。
-      final pressed = digital.contains(dir) ||
-          (wasPressed ? signal > _releaseThreshold : signal > _pressThreshold);
-      pressed ? dirState.add(dir) : dirState.remove(dir);
+    for (final src in _DirSource.values) {
+      final dirState = _dirState[src]!.putIfAbsent(id, () => {});
+      for (final dir in _dirs) {
+        final signal = _dirSignal(axes, dir, src);
+        final wasPressed = dirState.contains(dir);
+        // ヒステリシス: press は 0.55 超え、release は 0.35 未満で判定。
+        // Android のデジタル DPAD キーは無条件で press 扱い (十字キー側のみ)。
+        final pressed =
+            (src == _DirSource.dpad && digital.contains(dir)) ||
+                (wasPressed
+                    ? signal > _releaseThreshold
+                    : signal > _pressThreshold);
+        pressed ? dirState.add(dir) : dirState.remove(dir);
+      }
     }
 
-    // 全コントローラーの OR 合成 → 変化分を通知
+    // 全コントローラー・全ソースの OR 合成 → 変化分を通知
     final next = <GamepadControl>{};
-    for (final s in _dirState.values) {
-      next.addAll(s);
+    for (final perId in _dirState.values) {
+      for (final s in perId.values) {
+        next.addAll(s);
+      }
     }
     for (final s in _buttonState.values) {
       next.addAll(s);

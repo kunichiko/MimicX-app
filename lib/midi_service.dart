@@ -183,6 +183,26 @@ class MidiService {
     } catch (_) {}
   }
 
+  /// 操作画面 (ジョイスティック / キーボード / rename) に入るときに BLE スキャンを
+  /// 止める。一覧画面に戻ると [startBluetoothScanning] が再度呼ばれて復帰する。
+  ///
+  /// 目的は電力ではなく **無線の取り合い**。スキャンは allowDuplicates=true で
+  /// 走らせている (広告のたびに lastSeen を更新して stale プルーニングするため)
+  /// ので、継続すると Bluetooth 無線のスキャンウィンドウが常時占有される。
+  /// ホスト側の Bluetooth は BLE と BT クラシックを時分割で共有するため、
+  /// これが **プレイ中のゲームコントローラーの接続** の帯域を削り、入力の
+  /// 取りこぼし/ジッタ (方向キーの離しが遅れて「余計に動く」) の一因になる。
+  /// USB アダプタで接続したときはプラグイン側の stopScan が走らないため、
+  /// アプリ側で明示的に止める必要がある (BLE 接続時は connect で止まる)。
+  ///
+  /// Android だけは対象外。Android の [startBluetoothScanning] は権限要求の
+  /// 二重発行とスキャン頻度制限 (5 回 / 30 秒) を避けるためセッション中 1 回しか
+  /// スキャンを開始しない作りで、ここで止めると二度と再開できなくなる。
+  void suspendBluetoothScanningForSession() {
+    if (Platform.isAndroid) return;
+    stopBluetoothScanning();
+  }
+
   // --- トランスポート別パラメータ (protocol §2.4) ----------------------------
   // BLE-MIDI は USB-MIDI よりラウンドトリップが遅く分割もあるため、ACK タイムアウトと
   // HEART_BEAT 失敗許容回数を緩める。接続中デバイスの種別で自動的に切り替える。
@@ -534,6 +554,9 @@ class MidiService {
   /// 多重起動 (前のタイマーが残ったまま) は前タイマーを止めてから上書きする。
   /// 接続中の操作画面 / rename 画面に入るタイミングで呼ぶ。
   void startHeartBeat({required VoidCallback onFailure}) {
+    // 操作画面に入った == プレイ中。BLE スキャンを止めて無線を明け渡す
+    // (理由は suspendBluetoothScanningForSession を参照)。
+    suspendBluetoothScanningForSession();
     _heartBeatTimer?.cancel();
     _heartBeatConsecutiveFails = 0;
     _onHeartBeatFailure = onFailure;
