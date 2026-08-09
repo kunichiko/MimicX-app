@@ -265,6 +265,36 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ),
     );
     if (!mounted) return;
+    // 'BRIDGE_REBOOTED' は開発者向けの「ブートローダで再起動」を実行したケース
+    // (DEV_TOOLS ビルドのみ)。デバイスは ROM ダウンロードモードに落ちて MIDI から
+    // 消えるため、一覧に残すと「再起動できていない」ように見える。識別キャッシュ
+    // ごと取り除き、再 scan もしない (居ないものを探しに行かない)。
+    if (result == 'BRIDGE_REBOOTED') {
+      // 同じアダプタは USB と BLE の 2 経路で一覧に並ぶことがあり、id は経路ごとに
+      // 別物になる。ブートローダに落ちれば両方とも消えるので、id ではなく identity の
+      // serial (CH32 Chip UID = デバイスの同一性, §6.4.5) で束ねて取り除く。
+      // 開いていた側だけ消すと、もう一方が一覧に残って「再起動できていない」ように
+      // 見える (実際そう見えた)。
+      final gone = <String>{dev.id};
+      if (serial.isNotEmpty) {
+        for (final d in _devices) {
+          if (d.identity?.serial == serial) gone.add(d.id);
+        }
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('ブートローダで再起動しました。一覧から外します'),
+        ),
+      );
+      setState(() {
+        _devices = _devices.where((d) => !gone.contains(d.id)).toList();
+      });
+      for (final id in gone) {
+        _identityCache.remove(id);
+        _identifyCooldown.remove(id);
+      }
+      return;
+    }
     // 'CONN_LOST' は HB 失敗で自動 pop されたケース。再 scan を促す。
     if (result == 'CONN_LOST') {
       final l = AppLocalizations.of(context)!;

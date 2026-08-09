@@ -92,6 +92,11 @@ class _DeviceRenamePageState extends State<DeviceRenamePage> {
 
   void _onHeartBeatFailure() {
     if (!mounted) return;
+    // 自分が最前面のときだけ pop する。ダイアログ等が上に積まれている状態で
+    // pop すると、そのルートの型 (showDialog<bool> なら bool?) と合わない値を
+    // 返してしまい Navigator が例外で壊れる = アプリが操作不能になる。
+    // (実際に開発者向けダイアログ表示中の HB 失敗で発生した)
+    if (ModalRoute.of(context)?.isCurrent != true) return;
     _autoPopResult = 'CONN_LOST';
     Navigator.of(context).pop(_autoPopResult);
   }
@@ -248,13 +253,22 @@ class _DeviceRenamePageState extends State<DeviceRenamePage> {
     );
     if (ok != true || !mounted) return;
 
+    // このコマンドはデバイスを意図的に落とすので、先に HB を止めて
+    // 「接続が切れた」扱いの自動 pop が走らないようにする。
+    widget.midi.stopHeartBeat();
     final result = await widget.midi.bridgeRebootBootloader();
     if (!mounted) return;
-    final msg = result.isOk
-        ? 'ダウンロードモードへ移行します (約300ms後)'
-        : result.status == AckStatus.unknownCommand
-            ? 'このアダプタはブリッジを持ちません (USB 直結構成)'
-            : 'failed: ${AckStatus.label(result.status)}';
+
+    if (result.isOk) {
+      // デバイスはもう居なくなる。この画面に留まると「再起動できていない」ように
+      // 見えるので (実際そう誤解された)、一覧へ戻して一覧からも外してもらう。
+      _autoPopResult = 'BRIDGE_REBOOTED';
+      Navigator.of(context).pop(_autoPopResult);
+      return;
+    }
+    final msg = result.status == AckStatus.unknownCommand
+        ? 'このアダプタはブリッジを持ちません (USB 直結構成)'
+        : 'failed: ${AckStatus.label(result.status)}';
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 }
