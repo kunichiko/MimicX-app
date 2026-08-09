@@ -30,6 +30,11 @@ import 'l10n/app_localizations.dart';
 import 'midi_service.dart';
 import 'protocol.dart';
 
+/// 開発者向け UI の表示スイッチ (--dart-define=DEV_TOOLS=true)。既定 false なので
+/// 通常ビルドには出ない。戻すのに再書き込み/電源再投入が要る操作を含むため、
+/// 一般ユーザーの誤操作を防ぐ意味でビルド時に落としている。
+const bool kDevTools = bool.fromEnvironment('DEV_TOOLS');
+
 class DeviceRenamePage extends StatefulWidget {
   final MidiDeviceInfo deviceInfo;
   final String initialNickname;
@@ -189,10 +194,67 @@ class _DeviceRenamePageState extends State<DeviceRenamePage> {
                   ),
                 ],
               ),
+              if (kDevTools) ...[
+                const Divider(height: 48),
+                // 開発者向けセクション。--dart-define=DEV_TOOLS=true のときだけ出る
+                // ため、通常ビルドのユーザーには一切見えない。この理由で l10n は
+                // 通していない (訳が要るほど表に出ない)。
+                const Text(
+                  'Developer tools',
+                  style: TextStyle(color: Colors.grey, fontSize: 12),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: _connecting ? null : _rebootBootloader,
+                  icon: const Icon(Icons.memory),
+                  label: const Text('ブリッジをブートローダで再起動'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.orangeAccent,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
       ),
     );
+  }
+
+  /// ブリッジ (ESP32) を ROM ダウンロードモードで再起動させる (§6.4.6)。
+  /// 戻れなくなる操作なので確認ダイアログを挟む。
+  Future<void> _rebootBootloader() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('ブートローダで再起動'),
+        content: const Text(
+          'ブリッジ (ESP32) を ROM ダウンロードモードで再起動します。\n\n'
+          '・アダプタは MIDI デバイスとして消え、書き込み用のシリアル/JTAG '
+          'デバイスとして現れます\n'
+          '・通常動作に戻すには、ファームを書き込むか電源を入れ直してください\n'
+          '・USB 直結 (ブリッジ無し) のアダプタでは何も起きません',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('キャンセル'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('再起動'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    final result = await widget.midi.bridgeRebootBootloader();
+    if (!mounted) return;
+    final msg = result.isOk
+        ? 'ダウンロードモードへ移行します (約300ms後)'
+        : result.status == AckStatus.unknownCommand
+            ? 'このアダプタはブリッジを持ちません (USB 直結構成)'
+            : 'failed: ${AckStatus.label(result.status)}';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 }

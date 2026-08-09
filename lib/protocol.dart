@@ -275,6 +275,9 @@ class SysExBuilder {
   static const int cmdEmitRemote = 0x07; // ホスト→デバイス: REMOTE 端子からリモコンコード発射
   static const int cmdHeartBeat = 0x08;  // ホスト→デバイス: 接続生存通知 (1 秒間隔)
   static const int cmdDisconnect = 0x09; // ホスト→デバイス: 選択終了。即座に SCANNED 復帰
+  /// ホスト→ブリッジ: ブリッジ MCU (ESP32) を ROM ダウンロードモードで再起動 (§6.4.6)。
+  /// 開発者向け。基板の BOOT ボタンを押さずにファーム書き込みへ入るために使う。
+  static const int cmdBridgeRebootBootloader = 0x0C;
   static const int cmdSetConfig = 0x10;
   static const int cmdGetConfig = 0x11;
   static const int cmdConfigRsp = 0x12;
@@ -288,6 +291,13 @@ class SysExBuilder {
 
   static List<int> capabilityRequest(int reqId) =>
       [0xF0, mfrId, subId, cmdCapabilityReq, reqId & 0x7F, 0xF7];
+
+  /// BRIDGE_REBOOT_BOOTLOADER (§6.4.6)。マジック "BOT" (0x42 0x4F 0x54) 必須。
+  /// ブリッジは ACK を返してから約 300ms 後に ROM ダウンロードモードへ落ちる。
+  static List<int> bridgeRebootBootloader(int reqId) => [
+        0xF0, mfrId, subId, cmdBridgeRebootBootloader, reqId & 0x7F,
+        0x42, 0x4F, 0x54, 0xF7,
+      ];
 
   static List<int> setConfig(int reqId, int key, int value) =>
       [0xF0, mfrId, subId, cmdSetConfig, reqId & 0x7F, key & 0x7F, value & 0x7F, 0xF7];

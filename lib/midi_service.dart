@@ -522,6 +522,24 @@ class MidiService {
     sendSysEx(SysExBuilder.emitRemote(reqId, code));
   }
 
+  /// ブリッジ MCU (ESP32) を ROM ダウンロードモードで再起動させる (§6.4.6)。
+  ///
+  /// **開発者向け**。基板上の BOOT ボタンを押さずに esptool でファーム書き込みへ
+  /// 入るために使う。成功するとアダプタは MIDI デバイスとして消え、USB は ROM の
+  /// シリアル/JTAG デバイスとして再列挙される。**通常動作に戻すには電源再投入か
+  /// ファーム書き込みが必要**。
+  ///
+  /// ブリッジを持たない単一チップ構成 (USB 直結の CH32) では UNKNOWN_COMMAND が
+  /// 返るだけで何も起きない。ACK を待って結果を返す (ACK 後に再起動するため、
+  /// OK が返ってから切断されるのが正常)。
+  Future<AckResult> bridgeRebootBootloader() async {
+    final reqId = _reqIdAllocator.allocate();
+    return _sendAndWait(
+      reqId: reqId,
+      sysex: SysExBuilder.bridgeRebootBootloader(reqId),
+    );
+  }
+
   /// ステータス LED の色を override 設定。R/G/B は 0-255。
   /// fire-and-forget。RGB=(255,255,255) はファーム側で override reset として扱われる。
   ///
