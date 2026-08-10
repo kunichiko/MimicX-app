@@ -8,6 +8,9 @@ import 'protocol.dart';
 /// アダプタ往復時間の計測ログ (既定 false。通常ビルドには影響しない)。
 const bool kMidiRttLog = bool.fromEnvironment('MIDI_RTT_LOG');
 
+/// リモート入力の受信ログ (既定 false)。転送元アプリの実装時の切り分け用。
+const bool kRemoteInputLog = bool.fromEnvironment('REMOTE_INPUT_LOG');
+
 class MidiDeviceInfo {
   final String name;
   final String id;
@@ -47,6 +50,16 @@ class MidiService {
   //   midi_channel: 送信元の機能の MIDI チャンネル (0-indexed)
   //   byte: ターゲット機が送ってきた生バイト
   void Function(int midiChannel, int byte)? onTargetRx;
+
+  /// リモート入力 (別アプリからの物理キー転送, protocol.dart の sub-id 0x02) の通知。
+  /// 操作画面が購読して、自前のキーハンドラと同じ経路へ流す。
+  Stream<RemoteInputEvent> get onRemoteInput => _remoteInputCtrl.stream;
+  final StreamController<RemoteInputEvent> _remoteInputCtrl =
+      StreamController<RemoteInputEvent>.broadcast();
+
+  /// 仮想 MIDI 宛先を公開できているか (= 転送元アプリから見えているか)。
+  bool get remoteInputAvailable => _remoteInputDevice != null;
+  MidiDevice? _remoteInputDevice;
 
   // SysEx 受信用バッファ
   final List<int> _sysexBuf = [];
@@ -121,6 +134,12 @@ class MidiService {
   Future<List<MidiDeviceInfo>> scanDevices() async {
     final devices = await _midiCommand.devices ?? [];
     return devices
+        // 自分が公開している仮想ポート (リモート入力用) はアダプタ候補ではない。
+        // 除外しないと識別スキャンが「接続 → IDENTIFY → 切断」で自分自身を叩き、
+        // startRemoteInput() が張った接続を切ってしまう。プラグインは own-virtual の
+        // 切断で isConnected=false にするため、以降 受信ブロックが動かなくなる
+        // (実際にこれでリモート入力が一切届かなくなっていた)。
+        .where((d) => d.type != 'own-virtual')
         .where((d) => !_excludedDeviceNamePatterns.any((p) => p.hasMatch(d.name)))
         .map((d) => MidiDeviceInfo(
               name: d.name,
@@ -177,6 +196,113 @@ class MidiService {
     } catch (_) {
       // Bluetooth 利用不可。USB のみで続行する。
     }
+  }
+
+  // --- リモート入力 (別アプリからの物理キー転送) ------------------------------
+  //
+  // 仮想 MIDI 宛先を公開し、転送元アプリ (RetroCastX 等) がそこへ SysEx を送れる
+  // ようにする。macOS はフォーカスの無いアプリにキーイベントを配送しないため、
+  // 映像アプリの画面を見ながら実機を操作するにはこの経路が要る。
+  //
+  // 注意: プラグインの仮想宛先は「自分の仮想デバイスに connect している間」しか
+  // 受信を流さない実装になっている (MIDIDestinationCreateWithBlock のブロックが
+  // isConnected を見ている)。公開しただけでは届かないので connect まで行う。
+
+  /// 仮想 MIDI 宛先を公開して受信を開始する。成功したら true。
+  /// 対応は macOS のみ (他プラットフォームでは何もしない)。
+  Future<bool> startRemoteInput() async {
+    if (!Platform.isMacOS) return false;
+    if (_remoteInputDevice != null) return true;
+    void log(String m) {
+      if (kRemoteInputLog) {
+        // ignore: avoid_print
+        print('[remote] $m');
+      }
+    }
+
+    try {
+      log('addVirtualDevice("$kRemoteInputPortName")');
+      _midiCommand.addVirtualDevice(name: kRemoteInputPortName);
+      // RX の購読はアダプタ接続 (connect) と紐づいており、一覧画面など未接続の
+      // 間は張られていない。リモート入力は接続状態と無関係に届くので、専用の
+      // 購読を独立して持つ (onMidiDataReceived は receiveBroadcastStream なので
+      // 複数購読できる)。アダプタ向けの解析と二重に走らないよう、ここでは
+      // sub-id 0x02 だけを見る。
+      _remoteRxSub ??= _midiCommand.onMidiDataReceived?.listen(_onRemoteRx);
+      // 生成直後は列挙に現れないことがあるので数回試す
+      for (int i = 0; i < 5; i++) {
+        final devices = await _midiCommand.devices ?? [];
+        log('try $i: ${devices.map((d) => "${d.type}/${d.name}").join(", ")}');
+        for (final d in devices) {
+          if (d.type == 'own-virtual' && d.name == kRemoteInputPortName) {
+            log('connecting to own-virtual id=${d.id}');
+            await _midiCommand.connectToDevice(d);
+            _remoteInputDevice = d;
+            log('connected');
+            return true;
+          }
+        }
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+      log('own-virtual device not found after retries');
+    } catch (e) {
+      // 公開できなくても本体機能には影響しないので続行する
+      log('failed: $e');
+    }
+    return false;
+  }
+
+  /// リモート入力専用の RX 購読。アダプタ用の [_rxSubscription] とは独立。
+  StreamSubscription<MidiPacket>? _remoteRxSub;
+  final List<int> _remoteSysexBuf = [];
+  bool _remoteSysexReceiving = false;
+
+  /// リモート入力経路の受信。sub-id 0x02 の SysEx だけを拾う。
+  /// アダプタからのデータもこのストリームに混ざるが、sub-id で弾かれる。
+  void _onRemoteRx(MidiPacket packet) {
+    if (kRemoteInputLog) {
+      // ignore: avoid_print
+      print('[remote] rx from ${packet.device.name}/${packet.device.type}: '
+          '${packet.data.map((b) => b.toRadixString(16).padLeft(2, "0")).join(" ")}');
+    }
+    for (final byte in packet.data) {
+      if (byte == 0xF0) {
+        _remoteSysexBuf
+          ..clear()
+          ..add(byte);
+        _remoteSysexReceiving = true;
+      } else if (_remoteSysexReceiving) {
+        _remoteSysexBuf.add(byte);
+        if (byte == 0xF7) {
+          final sysex = List<int>.unmodifiable(_remoteSysexBuf);
+          _remoteSysexBuf.clear();
+          _remoteSysexReceiving = false;
+          final ev = RemoteInputEvent.parse(sysex);
+          if (ev != null) {
+            if (kRemoteInputLog) {
+              // ignore: avoid_print
+              print('[remote] $ev');
+            }
+            _remoteInputCtrl.add(ev);
+          }
+        }
+      }
+    }
+  }
+
+  /// 仮想 MIDI 宛先を取り下げる。
+  void stopRemoteInput() {
+    _remoteRxSub?.cancel();
+    _remoteRxSub = null;
+    final dev = _remoteInputDevice;
+    _remoteInputDevice = null;
+    if (dev == null) return;
+    try {
+      _midiCommand.disconnectDevice(dev);
+    } catch (_) {}
+    try {
+      _midiCommand.removeVirtualDevice(name: kRemoteInputPortName);
+    } catch (_) {}
   }
 
   /// BLE スキャンを停止する。
@@ -351,6 +477,8 @@ class MidiService {
 
   void _processSysEx(List<int> sysex) {
     if (sysex.length < 5) return;
+    // sub-id 0x02 (ホスト間のリモート入力) はここでは扱わない。専用購読
+    // (_onRemoteRx) が拾う。両方で拾うと接続中に二重配送になる。
     if (sysex[1] != 0x7D || sysex[2] != 0x01) return;
     final cmd = sysex[3];
     if (cmd == SysExBuilder.cmdIdentifyRsp) {
@@ -464,23 +592,29 @@ class MidiService {
   // sendNote/CC は HID 経由でアダプタへ送る。アダプタは CONNECTED 状態なら
   // 自動で activity 点滅 (青 High) するのでアプリ側からは何もしない。
 
+  /// 送信先はアダプタに限定する。deviceId を省くとプラグインは **接続中の全
+  /// デバイス** へ送るため、リモート入力用の仮想デバイスにも自分の送信が
+  /// エコーされてしまう (実害は薄いが、自分の仮想ポートに出力が漏れる)。
+  /// 未接続時は従来どおり null (= ブロードキャスト) にしておく。
+  String? get _txDeviceId => _connectedDevice?.id;
+
   void sendNoteOn(int channel, int note, int velocity) {
     final data = Uint8List.fromList([0x90 | (channel & 0x0F), note & 0x7F, velocity & 0x7F]);
-    _midiCommand.sendData(data);
+    _midiCommand.sendData(data, deviceId: _txDeviceId);
   }
 
   void sendNoteOff(int channel, int note) {
     final data = Uint8List.fromList([0x80 | (channel & 0x0F), note & 0x7F, 0x00]);
-    _midiCommand.sendData(data);
+    _midiCommand.sendData(data, deviceId: _txDeviceId);
   }
 
   void sendCC(int channel, int cc, int value) {
     final data = Uint8List.fromList([0xB0 | (channel & 0x0F), cc & 0x7F, value & 0x7F]);
-    _midiCommand.sendData(data);
+    _midiCommand.sendData(data, deviceId: _txDeviceId);
   }
 
   void sendSysEx(List<int> data) {
-    _midiCommand.sendData(Uint8List.fromList(data));
+    _midiCommand.sendData(Uint8List.fromList(data), deviceId: _txDeviceId);
   }
 
   // パッドモード設定 (SysEx SET_CONFIG)

@@ -128,6 +128,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     // USB 挿抜などで MIDI 構成が変わったらイベント駆動で再 scan する。
     _midiSetupSub = _midi.onMidiSetupChanged?.listen(_onMidiSetupChanged);
+    // リモート入力用の仮想 MIDI 宛先を公開する (macOS のみ、失敗しても無視)。
+    // フォーカスの無い MimicX にキーイベントは届かないため、映像表示アプリ側で
+    // 受けたキーをここへ転送してもらう (protocol.dart の sub-id 0x02)。
+    Future.microtask(_midi.startRemoteInput);
     // 起動時に自動スキャン
     Future.microtask(_scanAndIdentify);
   }

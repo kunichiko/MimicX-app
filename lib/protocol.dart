@@ -348,3 +348,102 @@ class ReqIdAllocator {
     return id;
   }
 }
+
+// ===================================================================================
+// リモート入力 (ホスト間プロトコル)
+// ===================================================================================
+// 別アプリ (RetroCastX 等) が自分のウィンドウにフォーカスがある状態で受けた
+// 物理キー入力を MimicX へ転送するための取り決め。
+//
+// macOS はフォーカスの無いアプリにキーイベントを配送しないため、映像を表示する
+// アプリの画面を見ながら実機を操作しようとすると、キー操作のたびにウィンドウを
+// 切り替える必要がある。転送元アプリが受けたキーをそのまま流してもらうことで解決する。
+// (ゲームパッドは GCController.shouldMonitorBackgroundEvents で解決済みのため対象外)
+//
+// 経路は **CoreMIDI の仮想宛先**。MimicX は App Sandbox 有効のため、
+//   - 書き込めるのはコンテナ内だけ = Unix domain socket はパス決め打ちが必要で脆い
+//   - コンテナ外のソケットへ connect できないので逆向きも不可
+//   - Release の entitlements に network.server が無いので TCP の listen は不可
+// という制約がある。CoreMIDI なら既に使っており、名前で発見できて追加権限も要らない。
+//
+// デバイス向けプロトコル (sub-id 0x01) と混ざらないよう **sub-id 0x02** を使う。
+// これは「アプリ ⇄ アプリ」の取り決めであり、アダプタには一切送らない。
+// ===================================================================================
+
+/// MimicX が公開する仮想 MIDI 宛先の名前。転送元アプリはこの名前で宛先を探す。
+const String kRemoteInputPortName = 'MimicX Remote Input';
+
+class RemoteInputSysEx {
+  static const int mfrId = 0x7D;
+  static const int subId = 0x02;   // 0x01 = デバイス向け / 0x02 = ホスト間
+
+  /// キーの押下・解放。usage は Flutter の PhysicalKeyboardKey.usbHidUsage と
+  /// 同じ値 (例: A キー = 0x00070004) を 7bit×4 のビッグエンディアンで送る。
+  ///   `F0 7D 02 01 <u27-21> <u20-14> <u13-7> <u6-0> <1|0> F7`
+  static const int cmdKey = 0x01;
+
+  /// 押下中のキーをすべて解放する。転送元がフォーカスを失った / 切断されたときに
+  /// 送る。これが無いと押しっぱなしが残る。
+  ///   F0 7D 02 02 F7
+  static const int cmdReleaseAll = 0x02;
+
+  /// [cmdKey] を組み立てる (転送元アプリ側の実装リファレンス / テスト用)。
+  static List<int> key(int usbHidUsage, bool pressed) => [
+        0xF0, mfrId, subId, cmdKey,
+        (usbHidUsage >> 21) & 0x7F,
+        (usbHidUsage >> 14) & 0x7F,
+        (usbHidUsage >> 7) & 0x7F,
+        usbHidUsage & 0x7F,
+        pressed ? 1 : 0,
+        0xF7,
+      ];
+
+  static List<int> releaseAll() => [0xF0, mfrId, subId, cmdReleaseAll, 0xF7];
+}
+
+/// リモート入力で届いたイベント。
+sealed class RemoteInputEvent {
+  const RemoteInputEvent();
+
+  /// sub-id 0x02 の SysEx をパースする。対象外なら null。
+  static RemoteInputEvent? parse(List<int> sysex) {
+    if (sysex.length < 5) return null;
+    if (sysex.first != 0xF0 || sysex.last != 0xF7) return null;
+    if (sysex[1] != RemoteInputSysEx.mfrId ||
+        sysex[2] != RemoteInputSysEx.subId) {
+      return null;
+    }
+    switch (sysex[3]) {
+      case RemoteInputSysEx.cmdKey:
+        if (sysex.length != 10) return null;
+        final usage = ((sysex[4] & 0x7F) << 21) |
+            ((sysex[5] & 0x7F) << 14) |
+            ((sysex[6] & 0x7F) << 7) |
+            (sysex[7] & 0x7F);
+        return RemoteKeyEvent(usage: usage, pressed: sysex[8] != 0);
+      case RemoteInputSysEx.cmdReleaseAll:
+        return const RemoteReleaseAllEvent();
+      default:
+        return null;
+    }
+  }
+}
+
+class RemoteKeyEvent extends RemoteInputEvent {
+  const RemoteKeyEvent({required this.usage, required this.pressed});
+
+  /// USB HID usage (PhysicalKeyboardKey.usbHidUsage と同じ値)
+  final int usage;
+  final bool pressed;
+
+  @override
+  String toString() => 'RemoteKeyEvent(0x${usage.toRadixString(16)}, '
+      '${pressed ? "down" : "up"})';
+}
+
+class RemoteReleaseAllEvent extends RemoteInputEvent {
+  const RemoteReleaseAllEvent();
+
+  @override
+  String toString() => 'RemoteReleaseAllEvent()';
+}
