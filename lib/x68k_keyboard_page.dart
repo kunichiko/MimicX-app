@@ -14,6 +14,7 @@ import 'channel_mode.dart';
 import 'l10n/app_localizations.dart';
 import 'midi_service.dart';
 import 'mode_scaffold.dart';
+import 'protocol.dart';
 import 'orientation_helper.dart';
 import 'sjis_encoder.dart';
 import 'windows_ime.dart';
@@ -666,6 +667,41 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
     // デスクトップ / 外付け物理キーボードからのキーイベントを購読する。
     // Focus を介さない全域ハンドラなので AppBar 操作中でもキーが拾える。
     HardwareKeyboard.instance.addHandler(_handlePhysicalKey);
+
+    // 別アプリからのリモート入力 (protocol.dart の sub-id 0x02) も同じ経路へ流す。
+    // macOS はフォーカスの無いアプリにキーイベントを配送しないため、実機の映像を
+    // 表示する別アプリを見ながら操作する場合はこちらが唯一の入力経路になる。
+    _remoteInputSub = widget.midi.onRemoteInput.listen(_handleRemoteInput);
+  }
+
+  StreamSubscription<RemoteInputEvent>? _remoteInputSub;
+
+  /// リモート入力の物理キーを、ローカルの物理キーとまったく同じ扱いで処理する。
+  ///
+  /// 転送されてくる usage は Flutter の PhysicalKeyboardKey.usbHidUsage と同じ値
+  /// なので、findKeyByCode() で復元すれば既存の _physicalKeyMap がそのまま使える。
+  ///
+  /// 制約: PC キーボードモードの記号横取り (_pcCharMap) は event.character に
+  /// 依存しており、物理キーだけでは文字が決まらないため適用されない。リモート
+  /// 入力は常に X68k 配列モード相当の解釈になる。
+  void _handleRemoteInput(RemoteInputEvent ev) {
+    switch (ev) {
+      case RemoteReleaseAllEvent():
+        // 転送元がフォーカスを失った / 切断された。押しっぱなしを残さない。
+        for (final code in _pressed.toList()) {
+          _physicalKeyUp(code);
+        }
+      case RemoteKeyEvent(:final usage, :final pressed):
+        final key = PhysicalKeyboardKey.findKeyByCode(usage);
+        if (key == null) return;
+        final scancode = _physicalKeyMap[key];
+        if (scancode == null) return;
+        if (pressed) {
+          _physicalKeyDown(scancode);
+        } else {
+          _physicalKeyUp(scancode);
+        }
+    }
   }
 
   void _onSharedChanged() {
@@ -691,6 +727,7 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
     widget.stickyController.onReleaseAllRequested = null;
     widget.shared.removeListener(_onSharedChanged);
     HardwareKeyboard.instance.removeHandler(_handlePhysicalKey);
+    _remoteInputSub?.cancel();
     super.dispose();
   }
 
