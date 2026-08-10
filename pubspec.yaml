@@ -87,6 +87,20 @@ dependency_overrides:
       url: https://github.com/kunichiko/gamepads.git
       path: packages/gamepads_windows
       ref: 79a826e
+  # macOS: 既定では最前面のアプリしかゲームパッド入力を受け取れない
+  # (GCController.shouldMonitorBackgroundEvents が Big Sur 11.3 以降 NO 既定)。
+  # 別アプリ (RetroCastX 等) の画面を見ながら操作する用途では成立しないため、
+  # フォークで背景監視を有効化する。
+  #
+  # ref は gamepads_windows とは **別**。windows 側は 79a826e (winmm 実装) に
+  # 留める必要があり、一方 darwin は upstream main 系列でないと 0.1.2+4 の
+  # getFixedKey (Switch Pro の +/- が buttonMenu/buttonOptions で飛ぶ修正) が
+  # 入らない。0.1.2+2 に落とすとプロコンの + が効かなくなるため注意。
+  gamepads_darwin:
+    git:
+      url: https://github.com/kunichiko/gamepads.git
+      path: packages/gamepads_darwin
+      ref: c6dd3b8
 
 dev_dependencies:
   flutter_test:
