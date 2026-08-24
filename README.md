@@ -152,6 +152,21 @@ base64 -i ios_distribution.p12 | pbcopy
 base64 -i profile.mobileprovision | pbcopy
 ```
 
+## ライセンス
+
+**Apache License 2.0** ([`LICENSE`](LICENSE))。商標 (アプリ名・アイコン・
+`MimicX Remote Input` ポート名) の扱いとフォーク依存の一覧は [`NOTICE`](NOTICE)
+を参照してください。第三者コードの vendoring はありません。
+
+プロジェクト全体のライセンス構成:
+
+| リポジトリ | ライセンス |
+|---|---|
+| MimicX-hardware | CERN-OHL-S-2.0 (`tools/` のみ Apache-2.0) |
+| MimicX-firmware | Apache License 2.0 |
+| **MimicX-app** | **Apache License 2.0** |
+| MimicX-protocol | CC BY 4.0 |
+
 ## 関連リポジトリ
 
 - [MimicX-protocol](https://github.com/kunichiko/MimicX-protocol) - MIDI通信プロトコルライブラリ

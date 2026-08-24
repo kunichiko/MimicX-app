@@ -1,0 +1,45 @@
+Mimic X — app
+Copyright 2026 Kunihiko Ohnaka
+
+Licensed under the Apache License, Version 2.0 (the "License"); see ./LICENSE.
+
+
+商標について
+------------------------------------------------------------------------
+以下は Apache License 2.0 の許諾範囲には含まれません
+(Apache License 2.0 第6条を参照)。
+
+  "Mimic X"     正式名称
+  "MimicX"      短縮形 (リポジトリ名・ファイル名・識別子等で用いる)
+  アプリ名、アプリアイコン、ストア掲載用のスクリーンショットおよび説明文
+  仮想 MIDI ポート名 "MimicX Remote Input"
+
+大文字小文字の違い、空白の有無、およびこれらと混同を生じるおそれのある
+表記を含みます。
+
+本アプリを改変したものを頒布・公開する場合は、これらとは異なる名称を
+用いてください。公式版との混同を避け、利用者がサポートの出所を判断できる
+ようにするための措置です。
+
+
+第三者コードについて
+------------------------------------------------------------------------
+第三者のコードはこのリポジトリに取り込んでいません (vendoring なし)。
+依存関係は pubspec.yaml / pubspec.lock で宣言し、それぞれの権利者の
+ライセンスに従います。
+
+フォークして使っているプラグイン (いずれも upstream のライセンスを継承):
+
+  flutter_midi_command          github.com/kunichiko/FlutterMidiCommand
+  flutter_midi_command_windows  github.com/kunichiko/flutter_midi_command_windows
+  gamepads_windows              github.com/kunichiko/gamepads
+  gamepads_darwin               github.com/kunichiko/gamepads
+
+フォークの目的と参照リビジョンは README.md に記載しています。
+
+
+姉妹リポジトリのライセンス
+------------------------------------------------------------------------
+  MimicX-hardware   CERN-OHL-S-2.0  (tools/ のみ Apache-2.0)
+  MimicX-firmware   Apache License 2.0
+  MimicX-protocol   CC BY 4.0
