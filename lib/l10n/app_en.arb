@@ -161,5 +161,46 @@
   "aboutLicensesButton": "Open source licenses",
   "aboutCopyright": "© 2026 Kunihiko Ohnaka",
   "switchToKeyboard": "Switch to keyboard",
-  "switchToJoystick": "Switch to joystick"
+  "switchToJoystick": "Switch to joystick",
+  "linkDiagTooltip": "Connection diagnostics",
+  "linkDiagTitle": "Connection diagnostics",
+  "linkDiagDescription": "Measures how long it takes for input to reach the adapter. Copy the results and send them to the developer if input feels laggy.",
+  "linkDiagConnecting": "Connecting…",
+  "linkDiagConnectFailed": "Could not connect to the adapter.",
+  "linkDiagStart": "Start",
+  "linkDiagStop": "Stop",
+  "linkDiagCopy": "Copy results",
+  "linkDiagCopied": "Results copied to the clipboard",
+  "linkDiagProgress": "{done} / {total}",
+  "@linkDiagProgress": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "linkDiagLinkSection": "Bluetooth link",
+  "linkDiagLinkUnsupported": "This adapter's firmware does not report link details. Update the adapter firmware to see them.",
+  "linkDiagLinkUsb": "Connected over USB (no Bluetooth link).",
+  "linkDiagInterval": "Connection interval",
+  "linkDiagRequested": "Requested by adapter",
+  "linkDiagAccepted": "accepted",
+  "linkDiagNotAccepted": "not accepted",
+  "linkDiagInitialInterval": "Interval at connect",
+  "linkDiagLatency": "Slave latency",
+  "linkDiagTimeout": "Supervision timeout",
+  "linkDiagRttSection": "Round-trip time",
+  "linkDiagNotMeasured": "Tap Start to measure.",
+  "linkDiagColDevice": "Whole adapter",
+  "linkDiagColBridge": "Wireless only",
+  "linkDiagStatMin": "Min",
+  "linkDiagStatMedian": "Median",
+  "linkDiagStatAvg": "Average",
+  "linkDiagStatMax": "Max",
+  "linkDiagStatLost": "No response",
+  "linkDiagHistogram": "Distribution (whole adapter, ms)",
+  "linkDiagHint": "Input reaches the game port within roughly half to all of the round-trip time. \"Wireless only\" excludes the time inside the adapter."
 }

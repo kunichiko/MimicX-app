@@ -215,4 +215,102 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get switchToJoystick => 'Switch to joystick';
+
+  @override
+  String get linkDiagTooltip => 'Connection diagnostics';
+
+  @override
+  String get linkDiagTitle => 'Connection diagnostics';
+
+  @override
+  String get linkDiagDescription =>
+      'Measures how long it takes for input to reach the adapter. Copy the results and send them to the developer if input feels laggy.';
+
+  @override
+  String get linkDiagConnecting => 'Connecting…';
+
+  @override
+  String get linkDiagConnectFailed => 'Could not connect to the adapter.';
+
+  @override
+  String get linkDiagStart => 'Start';
+
+  @override
+  String get linkDiagStop => 'Stop';
+
+  @override
+  String get linkDiagCopy => 'Copy results';
+
+  @override
+  String get linkDiagCopied => 'Results copied to the clipboard';
+
+  @override
+  String linkDiagProgress(int done, int total) {
+    return '$done / $total';
+  }
+
+  @override
+  String get linkDiagLinkSection => 'Bluetooth link';
+
+  @override
+  String get linkDiagLinkUnsupported =>
+      'This adapter\'s firmware does not report link details. Update the adapter firmware to see them.';
+
+  @override
+  String get linkDiagLinkUsb => 'Connected over USB (no Bluetooth link).';
+
+  @override
+  String get linkDiagInterval => 'Connection interval';
+
+  @override
+  String get linkDiagRequested => 'Requested by adapter';
+
+  @override
+  String get linkDiagAccepted => 'accepted';
+
+  @override
+  String get linkDiagNotAccepted => 'not accepted';
+
+  @override
+  String get linkDiagInitialInterval => 'Interval at connect';
+
+  @override
+  String get linkDiagLatency => 'Slave latency';
+
+  @override
+  String get linkDiagTimeout => 'Supervision timeout';
+
+  @override
+  String get linkDiagRttSection => 'Round-trip time';
+
+  @override
+  String get linkDiagNotMeasured => 'Tap Start to measure.';
+
+  @override
+  String get linkDiagColDevice => 'Whole adapter';
+
+  @override
+  String get linkDiagColBridge => 'Wireless only';
+
+  @override
+  String get linkDiagStatMin => 'Min';
+
+  @override
+  String get linkDiagStatMedian => 'Median';
+
+  @override
+  String get linkDiagStatAvg => 'Average';
+
+  @override
+  String get linkDiagStatMax => 'Max';
+
+  @override
+  String get linkDiagStatLost => 'No response';
+
+  @override
+  String get linkDiagHistogram => 'Distribution (whole adapter, ms)';
+
+  @override
+  String get linkDiagHint =>
+      'Input reaches the game port within roughly half to all of the round-trip time. \"Wireless only\" excludes the time inside the adapter.';
 }

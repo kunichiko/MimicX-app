@@ -210,4 +210,102 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get switchToJoystick => 'ジョイスティック画面へ切替';
+
+  @override
+  String get linkDiagTooltip => '通信診断';
+
+  @override
+  String get linkDiagTitle => '通信診断';
+
+  @override
+  String get linkDiagDescription =>
+      '入力がアダプタに届くまでの時間を計測します。操作が遅れると感じる場合は、結果をコピーして開発者へ送ってください。';
+
+  @override
+  String get linkDiagConnecting => '接続中…';
+
+  @override
+  String get linkDiagConnectFailed => 'アダプタに接続できませんでした。';
+
+  @override
+  String get linkDiagStart => '計測開始';
+
+  @override
+  String get linkDiagStop => '中止';
+
+  @override
+  String get linkDiagCopy => '結果をコピー';
+
+  @override
+  String get linkDiagCopied => '結果をクリップボードにコピーしました';
+
+  @override
+  String linkDiagProgress(int done, int total) {
+    return '$done / $total';
+  }
+
+  @override
+  String get linkDiagLinkSection => 'Bluetooth リンク';
+
+  @override
+  String get linkDiagLinkUnsupported =>
+      'このアダプタのファームウェアはリンク情報に対応していません。表示するにはアダプタのファームウェアを更新してください。';
+
+  @override
+  String get linkDiagLinkUsb => 'USB で接続中です (Bluetooth リンクなし)。';
+
+  @override
+  String get linkDiagInterval => '接続間隔 (Connection interval)';
+
+  @override
+  String get linkDiagRequested => 'アダプタの要求値';
+
+  @override
+  String get linkDiagAccepted => '受理';
+
+  @override
+  String get linkDiagNotAccepted => '未受理';
+
+  @override
+  String get linkDiagInitialInterval => '接続直後の間隔';
+
+  @override
+  String get linkDiagLatency => 'スレーブレイテンシ';
+
+  @override
+  String get linkDiagTimeout => '監視タイムアウト';
+
+  @override
+  String get linkDiagRttSection => '往復時間';
+
+  @override
+  String get linkDiagNotMeasured => '「計測開始」を押してください。';
+
+  @override
+  String get linkDiagColDevice => 'アダプタ全体';
+
+  @override
+  String get linkDiagColBridge => '無線のみ';
+
+  @override
+  String get linkDiagStatMin => '最小';
+
+  @override
+  String get linkDiagStatMedian => '中央値';
+
+  @override
+  String get linkDiagStatAvg => '平均';
+
+  @override
+  String get linkDiagStatMax => '最大';
+
+  @override
+  String get linkDiagStatLost => '応答なし';
+
+  @override
+  String get linkDiagHistogram => '分布 (アダプタ全体, ms)';
+
+  @override
+  String get linkDiagHint =>
+      '入力が実機の端子に届くまでの時間は、往復時間のおおむね半分〜全体です。「無線のみ」はアダプタ内部の処理時間を除いた値です。';
 }

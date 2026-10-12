@@ -1,7 +1,7 @@
 // ===================================================================================
 // Mimic X プロトコル定数とパーサ
 // ===================================================================================
-// プロトコル仕様: MimicX-protocol v0.10.0
+// プロトコル仕様: MimicX-protocol v0.11.0
 // ===================================================================================
 
 /// このアプリがサポートするプロトコルのバージョン範囲。
@@ -25,8 +25,10 @@ class MinSupportedProtocol {
   // 0.10 は BRIDGE_REBOOT_BOOTLOADER (§6.4.6) の追加のみ。Web フラッシャー用の
   // ブリッジ自答コマンドでアプリは使わないため、対応は版数の引き上げだけ。
   // ファームが 0.10 を申告しても警告を出さないよう先に上げておく。
+  // 0.11 は BRIDGE_LINK_INFO (§6.4.7) の追加。通信診断画面で使う (未対応ブリッジは
+  // UNKNOWN_COMMAND が返るだけなので、機能の有無は応答で判定し版数は見ない)。
   static const int knownLatestMajor = 0;
-  static const int knownLatestMinor = 10;
+  static const int knownLatestMinor = 11;
 
   // 旧 API 互換用 (minor が同じなら同一)
   static const int major = minMajor;
@@ -281,6 +283,10 @@ class SysExBuilder {
   /// ホスト→ブリッジ: ブリッジ MCU (ESP32) を ROM ダウンロードモードで再起動 (§6.4.6)。
   /// 開発者向け。基板の BOOT ボタンを押さずにファーム書き込みへ入るために使う。
   static const int cmdBridgeRebootBootloader = 0x0C;
+  /// ホスト→ブリッジ: BLE リンクの合意済み接続パラメータを問い合わせる (§6.4.7)。
+  /// ブリッジが自答し CH32 へは中継しない。
+  static const int cmdBridgeLinkInfoReq = 0x0D;
+  static const int cmdBridgeLinkInfoRsp = 0x0E;
   static const int cmdSetConfig = 0x10;
   static const int cmdGetConfig = 0x11;
   static const int cmdConfigRsp = 0x12;
@@ -301,6 +307,10 @@ class SysExBuilder {
         0xF0, mfrId, subId, cmdBridgeRebootBootloader, reqId & 0x7F,
         0x42, 0x4F, 0x54, 0xF7,
       ];
+
+  /// BRIDGE_LINK_INFO_REQUEST (§6.4.7)。
+  static List<int> bridgeLinkInfo(int reqId) =>
+      [0xF0, mfrId, subId, cmdBridgeLinkInfoReq, reqId & 0x7F, 0xF7];
 
   static List<int> setConfig(int reqId, int key, int value) =>
       [0xF0, mfrId, subId, cmdSetConfig, reqId & 0x7F, key & 0x7F, value & 0x7F, 0xF7];
@@ -338,6 +348,120 @@ class SysExBuilder {
   static List<int> setLedBlink(int reqId, int speed) => [
         0xF0, mfrId, subId, cmdSetLedBlink, reqId & 0x7F, speed & 0x7F, 0xF7,
       ];
+}
+
+/// BRIDGE_LINK_INFO_RESPONSE (§6.4.7) のパース結果。
+/// ブリッジ (ESP32) と phone の BLE リンクで実際に合意された接続パラメータ。
+class BridgeLinkInfo {
+  /// 要求が届いた経路 (0x00=USB, 0x01=BLE)
+  final int transport;
+  /// BLE 接続中か (false なら以下の BLE フィールドは無効)
+  final bool bleLinked;
+  /// 接続パラメータ更新を要求した (送信成功)
+  final bool updateRequested;
+  /// 更新要求後に connection update が成立した
+  final bool updateAccepted;
+  /// 1.25ms 単位
+  final int connInterval;
+  final int slaveLatency;
+  /// 10ms 単位
+  final int supervisionTimeout;
+  /// 接続直後 (更新要求前) の interval。1.25ms 単位
+  final int initialInterval;
+  /// ブリッジが要求した interval の下限/上限。1.25ms 単位
+  final int requestedMin;
+  final int requestedMax;
+  final int attMtu;
+  /// 0=不明, 1=LE 1M, 2=LE 2M, 3=LE Coded
+  final int txPhy;
+  final int rxPhy;
+  /// dBm。取得できなければ null
+  final int? rssi;
+  final int updateCount;
+  /// 最後の connection update の status。0=成功、null=イベント未受信
+  final int? lastUpdateStatus;
+
+  const BridgeLinkInfo({
+    required this.transport,
+    required this.bleLinked,
+    required this.updateRequested,
+    required this.updateAccepted,
+    required this.connInterval,
+    required this.slaveLatency,
+    required this.supervisionTimeout,
+    required this.initialInterval,
+    required this.requestedMin,
+    required this.requestedMax,
+    required this.attMtu,
+    required this.txPhy,
+    required this.rxPhy,
+    required this.rssi,
+    required this.updateCount,
+    required this.lastUpdateStatus,
+  });
+
+  double get connIntervalMs => connInterval * 1.25;
+  double get initialIntervalMs => initialInterval * 1.25;
+  double get requestedMinMs => requestedMin * 1.25;
+  double get requestedMaxMs => requestedMax * 1.25;
+  int get supervisionTimeoutMs => supervisionTimeout * 10;
+
+  static String phyLabel(int phy) {
+    switch (phy) {
+      case 1: return 'LE 1M';
+      case 2: return 'LE 2M';
+      case 3: return 'LE Coded';
+      default: return '?';
+    }
+  }
+
+  /// [payload] は status の後ろ (transport 以降、F7 を除く)。§6.4.7 の将来拡張に
+  /// 合わせ、長い分は無視し、短い場合は欠けたフィールドを 0 / 不明として扱う。
+  static BridgeLinkInfo? parse(List<int> payload) {
+    if (payload.length < 2) return null;
+    int b(int i, [int fallback = 0]) =>
+        i < payload.length ? payload[i] & 0x7F : fallback;
+    int u14(int i) => (b(i) << 7) | b(i + 1);
+    final flags = b(1);
+    final rssiNeg = b(18, 0x7F);
+    final updStatus = b(20, 0x7F);
+    return BridgeLinkInfo(
+      transport: b(0),
+      bleLinked: (flags & 0x01) != 0,
+      updateRequested: (flags & 0x02) != 0,
+      updateAccepted: (flags & 0x04) != 0,
+      connInterval: u14(2),
+      slaveLatency: u14(4),
+      supervisionTimeout: u14(6),
+      initialInterval: u14(8),
+      requestedMin: u14(10),
+      requestedMax: u14(12),
+      attMtu: u14(14),
+      txPhy: b(16),
+      rxPhy: b(17),
+      rssi: rssiNeg == 0x7F ? null : -rssiNeg,
+      updateCount: b(19),
+      lastUpdateStatus: updStatus == 0x7F ? null : updStatus,
+    );
+  }
+}
+
+/// [MidiService.queryBridgeLinkInfo] の結果。
+class BridgeLinkInfoResult {
+  /// 応答の status。UNKNOWN_COMMAND = 非対応 (旧ブリッジ / USB 直結)、
+  /// GENERIC_ERROR = 応答なし (タイムアウト)
+  final int status;
+  final BridgeLinkInfo? info;
+  /// アプリ ⇄ ブリッジの往復時間 (ms)。応答が得られなかったときは null
+  final double? rttMs;
+
+  const BridgeLinkInfoResult({
+    required this.status,
+    required this.info,
+    required this.rttMs,
+  });
+
+  bool get supported => info != null;
 }
 
 /// 0x00〜0x7F を巡回する request ID アロケータ。

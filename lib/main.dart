@@ -8,6 +8,7 @@ import 'combined_session_page.dart';
 import 'device_nickname_store.dart';
 import 'device_rename_page.dart';
 import 'l10n/app_localizations.dart';
+import 'link_diagnostics_page.dart';
 
 import 'midi_service.dart';
 import 'protocol.dart';
@@ -318,6 +319,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _nicknames[serial] = result;
       }
     });
+  }
+
+  /// 通信診断画面。画面側で接続 / 切断まで行う (rename 画面と同じ扱い)。
+  Future<void> _openDiagnostics(MidiDeviceInfo dev) async {
+    final result = await Navigator.of(context).push<String?>(
+      MaterialPageRoute(
+        builder: (_) => LinkDiagnosticsPage(
+          deviceInfo: dev,
+          deviceName: _displayNameFor(dev),
+          midi: _midi,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (result == 'CONN_LOST') {
+      final l = AppLocalizations.of(context)!;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.connectionLost)),
+      );
+      setState(() => _devices = []);
+      await _scanAndIdentify();
+    }
   }
 
   Future<void> _openDevice(MidiDeviceInfo device) async {
@@ -767,6 +790,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               ],
                             ),
                           ),
+                          if (isMimicX)
+                            IconButton(
+                              icon: const Icon(Icons.network_check),
+                              tooltip: l.linkDiagTooltip,
+                              onPressed: () => _openDiagnostics(device),
+                            ),
                           if (hasSerial)
                             IconButton(
                               icon: const Icon(Icons.edit_outlined),

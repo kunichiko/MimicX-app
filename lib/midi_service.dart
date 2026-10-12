@@ -337,6 +337,9 @@ class MidiService {
   // HEART_BEAT 失敗許容回数を緩める。接続中デバイスの種別で自動的に切り替える。
   bool get _bleConnected => _connectedDevice?.type == 'BLE';
 
+  /// 接続中のアダプタが BLE 経由か (通信診断の表示用)。
+  bool get isBleConnected => _bleConnected;
+
   /// 接続中トランスポートに応じた ACK タイムアウト (USB 100ms / BLE 400ms)。
   Duration get _ackTimeout =>
       _bleConnected ? const Duration(milliseconds: 400) : defaultAckTimeout;
@@ -500,7 +503,8 @@ class MidiService {
         origCmd: sysex[6],
       ));
     } else if (cmd == SysExBuilder.cmdCapabilityRsp ||
-               cmd == SysExBuilder.cmdConfigRsp) {
+               cmd == SysExBuilder.cmdConfigRsp ||
+               cmd == SysExBuilder.cmdBridgeLinkInfoRsp) {
       // F0 7D 01 <cmd> <req_id> <status> <payload...> F7
       if (sysex.length < 7) return;
       _resolveAck(AckResult(
@@ -795,6 +799,52 @@ class MidiService {
       stopHeartBeat();
       cb?.call();
     }
+  }
+
+  // --- 通信診断 (link_diagnostics_page.dart) --------------------------------
+
+  /// HEART_BEAT を 1 発送って ACK までの往復時間を測る。経路は
+  /// アプリ → (BLE) → ブリッジ → I2C → CH32 → I2C → ブリッジ → (BLE) → アプリ。
+  /// CH32 は ACK を返す前にそれまでに届いたノートを GPIO へ反映し終えているので、
+  /// この値は「送信 → GPIO 反映」の上限になる。ACK が無ければ null。
+  Future<double?> measureHeartBeatRtt({
+    Duration timeout = const Duration(milliseconds: 900),
+  }) async {
+    final reqId = _reqIdAllocator.allocate();
+    final sw = Stopwatch()..start();
+    final result = await _sendAndWait(
+      reqId: reqId,
+      sysex: SysExBuilder.heartBeat(reqId),
+      timeout: timeout,
+    );
+    sw.stop();
+    if (!result.isOk) return null;
+    return sw.elapsedMicroseconds / 1000.0;
+  }
+
+  /// BRIDGE_LINK_INFO (§6.4.7) を問い合わせる。ブリッジ内で完結するコマンドなので、
+  /// 往復時間 [BridgeLinkInfoResult.rttMs] は「アプリ ⇄ ブリッジ」だけの RTT になる。
+  Future<BridgeLinkInfoResult> queryBridgeLinkInfo({
+    Duration timeout = const Duration(milliseconds: 900),
+  }) async {
+    final reqId = _reqIdAllocator.allocate();
+    final sw = Stopwatch()..start();
+    final result = await _sendAndWait(
+      reqId: reqId,
+      sysex: SysExBuilder.bridgeLinkInfo(reqId),
+      timeout: timeout,
+    );
+    sw.stop();
+    final rttMs = sw.elapsedMicroseconds / 1000.0;
+    if (result.isOk && result.origCmd == SysExBuilder.cmdBridgeLinkInfoRsp) {
+      return BridgeLinkInfoResult(
+        status: result.status,
+        info: BridgeLinkInfo.parse(result.payload),
+        rttMs: rttMs,
+      );
+    }
+    // UNKNOWN_COMMAND = 旧ブリッジ / USB 直結 (CH32 が答えた)。genericError = 無応答。
+    return BridgeLinkInfoResult(status: result.status, info: null, rttMs: null);
   }
 
   // 任意 channel への送信ヘルパー (互換)

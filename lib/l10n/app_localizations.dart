@@ -445,6 +445,192 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Switch to joystick'**
   String get switchToJoystick;
+
+  /// No description provided for @linkDiagTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection diagnostics'**
+  String get linkDiagTooltip;
+
+  /// No description provided for @linkDiagTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection diagnostics'**
+  String get linkDiagTitle;
+
+  /// No description provided for @linkDiagDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Measures how long it takes for input to reach the adapter. Copy the results and send them to the developer if input feels laggy.'**
+  String get linkDiagDescription;
+
+  /// No description provided for @linkDiagConnecting.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting…'**
+  String get linkDiagConnecting;
+
+  /// No description provided for @linkDiagConnectFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not connect to the adapter.'**
+  String get linkDiagConnectFailed;
+
+  /// No description provided for @linkDiagStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Start'**
+  String get linkDiagStart;
+
+  /// No description provided for @linkDiagStop.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop'**
+  String get linkDiagStop;
+
+  /// No description provided for @linkDiagCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy results'**
+  String get linkDiagCopy;
+
+  /// No description provided for @linkDiagCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Results copied to the clipboard'**
+  String get linkDiagCopied;
+
+  /// No description provided for @linkDiagProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'{done} / {total}'**
+  String linkDiagProgress(int done, int total);
+
+  /// No description provided for @linkDiagLinkSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Bluetooth link'**
+  String get linkDiagLinkSection;
+
+  /// No description provided for @linkDiagLinkUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'This adapter\'s firmware does not report link details. Update the adapter firmware to see them.'**
+  String get linkDiagLinkUnsupported;
+
+  /// No description provided for @linkDiagLinkUsb.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected over USB (no Bluetooth link).'**
+  String get linkDiagLinkUsb;
+
+  /// No description provided for @linkDiagInterval.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection interval'**
+  String get linkDiagInterval;
+
+  /// No description provided for @linkDiagRequested.
+  ///
+  /// In en, this message translates to:
+  /// **'Requested by adapter'**
+  String get linkDiagRequested;
+
+  /// No description provided for @linkDiagAccepted.
+  ///
+  /// In en, this message translates to:
+  /// **'accepted'**
+  String get linkDiagAccepted;
+
+  /// No description provided for @linkDiagNotAccepted.
+  ///
+  /// In en, this message translates to:
+  /// **'not accepted'**
+  String get linkDiagNotAccepted;
+
+  /// No description provided for @linkDiagInitialInterval.
+  ///
+  /// In en, this message translates to:
+  /// **'Interval at connect'**
+  String get linkDiagInitialInterval;
+
+  /// No description provided for @linkDiagLatency.
+  ///
+  /// In en, this message translates to:
+  /// **'Slave latency'**
+  String get linkDiagLatency;
+
+  /// No description provided for @linkDiagTimeout.
+  ///
+  /// In en, this message translates to:
+  /// **'Supervision timeout'**
+  String get linkDiagTimeout;
+
+  /// No description provided for @linkDiagRttSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Round-trip time'**
+  String get linkDiagRttSection;
+
+  /// No description provided for @linkDiagNotMeasured.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap Start to measure.'**
+  String get linkDiagNotMeasured;
+
+  /// No description provided for @linkDiagColDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Whole adapter'**
+  String get linkDiagColDevice;
+
+  /// No description provided for @linkDiagColBridge.
+  ///
+  /// In en, this message translates to:
+  /// **'Wireless only'**
+  String get linkDiagColBridge;
+
+  /// No description provided for @linkDiagStatMin.
+  ///
+  /// In en, this message translates to:
+  /// **'Min'**
+  String get linkDiagStatMin;
+
+  /// No description provided for @linkDiagStatMedian.
+  ///
+  /// In en, this message translates to:
+  /// **'Median'**
+  String get linkDiagStatMedian;
+
+  /// No description provided for @linkDiagStatAvg.
+  ///
+  /// In en, this message translates to:
+  /// **'Average'**
+  String get linkDiagStatAvg;
+
+  /// No description provided for @linkDiagStatMax.
+  ///
+  /// In en, this message translates to:
+  /// **'Max'**
+  String get linkDiagStatMax;
+
+  /// No description provided for @linkDiagStatLost.
+  ///
+  /// In en, this message translates to:
+  /// **'No response'**
+  String get linkDiagStatLost;
+
+  /// No description provided for @linkDiagHistogram.
+  ///
+  /// In en, this message translates to:
+  /// **'Distribution (whole adapter, ms)'**
+  String get linkDiagHistogram;
+
+  /// No description provided for @linkDiagHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Input reaches the game port within roughly half to all of the round-trip time. \"Wireless only\" excludes the time inside the adapter.'**
+  String get linkDiagHint;
 }
 
 class _AppLocalizationsDelegate
