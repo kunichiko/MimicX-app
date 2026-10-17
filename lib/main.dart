@@ -76,6 +76,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// キャッシュを使う。
   final Map<String, DeviceIdentity> _identityCache = {};
 
+  /// device id → 最後に IDENTIFY が成功した時刻。
+  final Map<String, DateTime> _identifiedAt = {};
+
+  /// 一覧から一度消えた (= 抜き差し / 電源 OFF の可能性がある) 識別済み id。
+  /// 再登場時に IDENTIFY を撃ち直してアダプタ LED を黄→緑にし、ファーム更新後の
+  /// 版数も取り直す。キャッシュが無条件に効くと、起動中に挿し直したアダプタへ
+  /// IDENTIFY が届かず LED が黄 (WAITING) のまま残る。
+  final Set<String> _staleIds = {};
+
+  /// 再識別の最小間隔。Android BLE は自分の connect→disconnect でデバイスが一覧
+  /// から消え (onDeviceRemoved が discoveredDevices からも除去)、広告の再受信で
+  /// すぐ戻ってくる。これを「抜き差し」とみなして再識別すると、その切断でまた
+  /// 消える…という無限ループになる (_identityCache 導入前の症状)。自分の識別に
+  /// 起因する消滅→再出現は数秒以内に収まるので、直近に識別したばかりの id は
+  /// 再識別しない。人手の抜き差しはまずこれより長くかかる。
+  static const Duration _reidentifyMinInterval = Duration(seconds: 10);
+
+  /// バックグラウンドに回ったか (paused / hidden)。iOS 等はバックグラウンド中に
+  /// MIDI 構成変化を受け取れず「一覧から消えた」を観測できないため、復帰時に
+  /// 識別済みデバイスを全部 stale 扱いにする。macOS のフォーカス移動は inactive
+  /// 止まりなのでここには入らない (フォーカス往復のたびに識別し直さない)。
+  bool _wasBackgrounded = false;
+
   /// 識別に失敗し続けるデバイスのセッション内クールダウン (deviceId → 状態)。
   /// ボンド不一致で必ず切断されるデバイスや Mimic X ではない MIDI 機器が、
   /// 自動再スキャンのたびに接続試行を専有して他のデバイスの識別を遅らせる
@@ -148,7 +171,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _wasBackgrounded = true;
+      return;
+    }
     if (state != AppLifecycleState.resumed) return;
+    if (_wasBackgrounded) {
+      _wasBackgrounded = false;
+      _staleIds.addAll(_identityCache.keys);
+    }
     _maybeAutoRescan();
   }
 
@@ -172,7 +204,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _scanAndIdentify();
   }
 
-  Future<void> _scanAndIdentify() async {
+  /// [force] = true は再スキャンボタン用。識別キャッシュとクールダウンを無視して
+  /// 全デバイスに IDENTIFY を撃ち直す (黄のまま残ったアダプタを緑に戻す逃げ道)。
+  /// ユーザ操作で 1 回走るだけなので Android の再スキャンループは起きない
+  /// (それに続く自動再スキャンは force なしで、_reidentifyMinInterval で止まる)。
+  Future<void> _scanAndIdentify({bool force = false}) async {
     setState(() => _scanning = true);
     // BLE-MIDI 機 (ESP32 等) を列挙対象にするため central 起動 + スキャンを行う。
     // Bluetooth OFF / 権限拒否時は内部で無視され USB のみで続行する。BLE 機は
@@ -180,18 +216,36 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     await _midi.startBluetoothScanning();
     final devices = await _midi.scanDevices();
 
+    // 一覧から消えた識別済み id は stale にしておき、再登場時に識別し直す。
+    final presentIds = devices.map((d) => d.id).toSet();
+    for (final id in _identityCache.keys) {
+      if (!presentIds.contains(id)) _staleIds.add(id);
+    }
+
     // 各デバイスに対して接続 → IDENTIFY → 切断 を順次実行。
-    // ただし既に識別済み (id でキャッシュ) のデバイスは再接続しない (上記
-    // _identityCache の説明参照)。
+    // ただし既に識別済み (id でキャッシュ) のデバイスは原則再接続しない (上記
+    // _identityCache の説明参照)。一度消えて戻ってきたものは識別し直す。
     for (final dev in devices) {
       final cached = _identityCache[dev.id];
-      if (cached != null) {
-        dev.identity = cached;
-        continue;
+      if (cached != null && !force) {
+        final at = _identifiedAt[dev.id];
+        final reidentify = _staleIds.contains(dev.id) &&
+            (at == null ||
+                DateTime.now().difference(at) >= _reidentifyMinInterval);
+        // 再登場を見届けたので stale は解除する (間隔不足で見送った場合も。
+        // 残すと無関係な再スキャンのたびに識別し直してループの種になる)。
+        _staleIds.remove(dev.id);
+        if (!reidentify) {
+          dev.identity = cached;
+          continue;
+        }
       }
+      _staleIds.remove(dev.id);
       // クールダウン中 (直近の識別が連続失敗) のデバイスは今回はスキップ
       final cooldown = _identifyCooldown[dev.id];
-      if (cooldown != null && DateTime.now().isBefore(cooldown.until)) {
+      if (!force &&
+          cooldown != null &&
+          DateTime.now().isBefore(cooldown.until)) {
         continue;
       }
       // identifyDevice 内部で IDENTIFY を複数回リトライする。それでも BLE は
@@ -218,7 +272,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // 積み増して、しばらく再試行しない (時間経過で自動的に再試行される)。
       if (dev.identity != null) {
         _identityCache[dev.id] = dev.identity!;
+        _identifiedAt[dev.id] = DateTime.now();
         _identifyCooldown.remove(dev.id);
+      } else if (cached != null) {
+        // 識別済みデバイスの再識別に失敗しただけなら、一覧からは落とさず前回の
+        // identity で表示を続ける (選択時は probe / HB で生存を確かめる)。
+        dev.identity = cached;
       } else {
         final fails = (cooldown?.fails ?? 0) + 1;
         final waitSecs = fails < 2 ? 0 : (15 << (fails - 2)).clamp(15, 120);
@@ -296,6 +355,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       });
       for (final id in gone) {
         _identityCache.remove(id);
+        _identifiedAt.remove(id);
+        _staleIds.remove(id);
         _identifyCooldown.remove(id);
       }
       return;
@@ -645,7 +706,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   )
                 : const Icon(Icons.refresh),
             tooltip: l.homeRescanTooltip,
-            onPressed: _scanning ? null : _scanAndIdentify,
+            onPressed:
+                _scanning ? null : () => _scanAndIdentify(force: true),
           ),
           IconButton(
             icon: const Icon(Icons.info_outline),
