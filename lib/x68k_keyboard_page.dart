@@ -98,18 +98,16 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
       LineInputMode(channel: widget.channel, shared: _shared),
       TvRemoteMode(),
     ];
-    // 起動直後に LED 状態を本体と同期する。X68000 からは "現在の LED 状態を
-    // 問い合わせる" 直接的な手段が無いので、何か LED トグルキーを押して
-    // X68000 が返す LED 制御コマンド (= 全 7 ビットの現状を含むメッセージ)
-    // で状態を学習する。
+    // 起動直後に LED 状態を本体と同期する。キーボード→本体へ 0xFF を送ると
+    // X68000 は LED 制御コマンド (= 全 7 ビットの現状) を送り返すので、それで
+    // 状態を学習する (firmware は note off の 0x80|note をそのまま送るため、
+    // note 0x7F の note off = 0xFF になる。0x7F はスキャンコードとして未使用)。
     //
-    // 全 7 キーを次々に押すと、排他関係のあるキー (かな↔ローマ字 / ひらがな等)
-    // で状態遷移がズレる恐れがあるため、CAPS (他と排他関係を持たない) を
-    // 2 回押して 1 回目で全 LED 状態を読み取り、2 回目で CAPS を元に戻す。
-    //
-    // 以前は INS を使っていたが、Human68k では INS が ESC P を生成するため、
-    // login: プロンプトなど COMMAND.X 以外の行入力に "^[P^[P" が入力されていた。
-    // CAPS はロック状態のトグルのみで文字を生成しない。
+    // 0xFF に応答しない本体に備え、一定時間 LED コマンドが返らなければ
+    // 従来方式 (CAPS を 2 回押し: 1 回目で全 LED 状態を読み取り、2 回目で
+    // CAPS を元に戻す) にフォールバックする。CAPS を選ぶのは他キーと排他
+    // 関係がなく文字も生成しないため (以前の INS は Human68k で ESC P を生成し
+    // login: などに "^[P^[P" が入力されていた)。
     Future.delayed(const Duration(milliseconds: 500), _syncLedState);
     // 操作画面に入っている間は HB を送り続ける。3 秒応答が無ければ "CONN_LOST"
     // を結果にして自動 pop。HomePage 側で再 scan される。
@@ -126,10 +124,24 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
 
   void _onTargetRx(int midiChannel, int byte) {
     if (midiChannel != widget.channel) return;
+    // bit7=1 は LED 制御コマンド
+    if (byte & 0x80 != 0) _ledReplyReceived = true;
     _shared.handleTargetRxByte(byte);
   }
 
+  /// LED 制御コマンドを本体から受信したら true (同期のフォールバック判定用)
+  bool _ledReplyReceived = false;
+
   Future<void> _syncLedState() async {
+    if (!mounted) return;
+    // 0xFF (= note 0x7F の note off) で本体に LED 状態の送出を促す
+    const ledRequestNote = 0x7F;
+    _ledReplyReceived = false;
+    widget.midi.sendNoteOff(widget.channel, ledRequestNote);
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (!mounted || _ledReplyReceived) return;
+    debugPrint('[x68k] 0xFF に LED 応答なし → CAPS 2 回押しで同期');
+
     const capsScancode = 0x5D;
     for (int i = 0; i < 2; i++) {
       if (!mounted) return;
