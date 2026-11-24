@@ -216,12 +216,17 @@ jobs:
 
   ios:
     name: Build iOS
-    runs-on: macos-26
+    # Xcode 27 (macOS 27 ベースの xcode-27 イメージ、GitHub は preview 扱い)。
+    # 既定 Xcode がイメージ更新で動かないよう、ローカルで検証済みの 27.1 に固定する。
+    # Xcode 27 の lipo は -verify_arch に複数アーキを渡すとエラーになるため
+    # Flutter 3.44.8 以上が必須 (3.44.0 だと macOS のユニバーサルビルドが失敗する)。
+    runs-on: xcode-27
     needs: prepare
     if: github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == 'ios'
     permissions:
       contents: read
     env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
       IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
@@ -500,12 +505,17 @@ jobs:
 
   macos:
     name: Build macOS
-    runs-on: macos-15
+    # Xcode 27 (macOS 27 ベースの xcode-27 イメージ、GitHub は preview 扱い)。
+    # 既定 Xcode がイメージ更新で動かないよう、ローカルで検証済みの 27.1 に固定する。
+    # Xcode 27 の lipo は -verify_arch に複数アーキを渡すとエラーになるため
+    # Flutter 3.44.8 以上が必須 (3.44.0 だと macOS のユニバーサルビルドが失敗する)。
+    runs-on: xcode-27
     needs: [prepare, release]
     if: github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos'
     permissions:
       contents: write
     env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
       MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
       MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
       KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}

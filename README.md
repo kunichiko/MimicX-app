@@ -46,7 +46,7 @@ Mimic X appは、Flutterで作られたマルチプラットフォームアプ�
 
 ## 開発環境
 
-Flutter SDK のバージョンは [`.fvmrc`](./.fvmrc) で固定 (現在 3.44.0)。
+Flutter SDK のバージョンは [`.fvmrc`](./.fvmrc) で固定 (現在 3.44.8)。
 [FVM](https://fvm.app/) を使ってバージョンを揃えるのが推奨。
 
 ```sh
