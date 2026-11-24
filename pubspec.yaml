@@ -59,6 +59,12 @@ dependencies:
   # アプリごと起動不能になり得る + ビルドに Windows SDK 26100+ が必要) ため、
   # winmm ベースの 0.1.8 に固定する。key の正規化は lib/gamepad_input.dart で自前実装
   gamepads: 0.1.8
+  # iOS も gamepads_darwin (iOS/macOS 共通ソース, Swift PM 対応) を使う。
+  # gamepads 0.1.8 が iOS に推奨する gamepads_ios は Swift PM 未対応のため、
+  # 実装パッケージを直接依存に書いて iOS の実装選択を darwin に切り替える
+  # (実体は dependency_overrides のフォーク)。key は macOS と同じ SF Symbols 名
+  # になるが lib/gamepad_input.dart の _decodeDarwin は両方の命名に対応済み。
+  gamepads_darwin: any
 
 dependency_overrides:
   # Windows: flutter_midi_command_windows 0.3.0 は短い channel message を
@@ -87,20 +93,31 @@ dependency_overrides:
       url: https://github.com/kunichiko/gamepads.git
       path: packages/gamepads_windows
       ref: 79a826e
-  # macOS: 既定では最前面のアプリしかゲームパッド入力を受け取れない
-  # (GCController.shouldMonitorBackgroundEvents が Big Sur 11.3 以降 NO 既定)。
-  # 別アプリ (RetroCastX 等) の画面を見ながら操作する用途では成立しないため、
-  # フォークで背景監視を有効化する。
+  # iOS / macOS 共通 (gamepads_darwin 0.1.4 = upstream main を載せ替えたフォーク、
+  # Swift PM 対応済み)。macOS では既定で最前面のアプリしかゲームパッド入力を
+  # 受け取れない (GCController.shouldMonitorBackgroundEvents が Big Sur 11.3
+  # 以降 NO 既定)。別アプリ (RetroCastX 等) の画面を見ながら操作する用途では
+  # 成立しないため、フォークで背景監視を有効化する (iOS では無効な API なので
+  # #if os(macOS) で限定)。
   #
   # ref は gamepads_windows とは **別**。windows 側は 79a826e (winmm 実装) に
-  # 留める必要があり、一方 darwin は upstream main 系列でないと 0.1.2+4 の
-  # getFixedKey (Switch Pro の +/- が buttonMenu/buttonOptions で飛ぶ修正) が
-  # 入らない。0.1.2+2 に落とすとプロコンの + が効かなくなるため注意。
+  # 留める必要があり、一方 darwin は upstream main 系列でないと getFixedKey
+  # (Switch Pro の +/- が buttonMenu/buttonOptions で飛ぶ修正) が入らない。
+  # 0.1.2+2 に落とすとプロコンの + が効かなくなるため注意。
+  # 旧 ref: c6dd3b8 (macos/Classes 版、macOS のみ・CocoaPods のみ)
   gamepads_darwin:
     git:
       url: https://github.com/kunichiko/gamepads.git
       path: packages/gamepads_darwin
-      ref: c6dd3b8
+      ref: a9fcae0
+  # universal_ble は flutter_midi_command_windows (Windows 用) の間接依存で
+  # Apple 側では使っていないが、0.21.x は Swift PM 未対応で iOS/macOS ビルドに
+  # 警告が出る (将来エラー化)。API を変えずに Package.swift だけ足したフォーク。
+  # 3.x への本格追従は別途 (Windows フォークの API 追従が必要)。
+  universal_ble:
+    git:
+      url: https://github.com/kunichiko/universal_ble.git
+      ref: aea348f
 
 dev_dependencies:
   flutter_test:

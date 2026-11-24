@@ -6,13 +6,15 @@
 // アプリ自体が起動できなくなるリスクがある (加えてビルドに Windows SDK 26100+ が
 // 必要)。0.1.8 の GamepadEvent は key がプラットフォーム依存の生文字列なので
 // (Android: "KEYCODE_BUTTON_A"/"AXIS_HAT_X"、Windows(winmm): "button-0"/"pov"、
-//  iOS: "buttonA"/"dpad - xAxis"、macOS: SF Symbols 名 "a.circle" 等)、
+//  iOS / macOS: SF Symbols 名 "a.circle"/"dpad - xAxis" 等。旧 gamepads_ios は
+//  "buttonA" 等の固有名だった)、
 // 本ファイルでプラットフォーム別にデコードして論理コントロール
 // (Xbox 標準配置基準) に正規化する。
 //
 // 各実装の key 仕様の確認元 (pub.dev 解決版のネイティブソース):
 //   gamepads_android 0.1.8+2 / gamepads_windows 0.1.4+1 /
-//   gamepads_ios 0.1.3+3 / gamepads_darwin 0.1.2+4
+//   gamepads_darwin 0.1.4 (iOS / macOS 共通。pubspec でフォークを直接依存にして
+//   iOS も darwin 実装を使う。gamepads_ios 0.1.3+3 の固有名マップは互換のため残置)
 //
 // 構成:
 //   GamepadControl   : 論理コントロール enum
