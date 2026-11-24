@@ -104,8 +104,12 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
     // で状態を学習する。
     //
     // 全 7 キーを次々に押すと、排他関係のあるキー (かな↔ローマ字 / ひらがな等)
-    // で状態遷移がズレる恐れがあるため、INS (他と排他関係を持たない) を
-    // 2 回押して 1 回目で全 LED 状態を読み取り、2 回目で INS を元に戻す。
+    // で状態遷移がズレる恐れがあるため、CAPS (他と排他関係を持たない) を
+    // 2 回押して 1 回目で全 LED 状態を読み取り、2 回目で CAPS を元に戻す。
+    //
+    // 以前は INS を使っていたが、Human68k では INS が ESC P を生成するため、
+    // login: プロンプトなど COMMAND.X 以外の行入力に "^[P^[P" が入力されていた。
+    // CAPS はロック状態のトグルのみで文字を生成しない。
     Future.delayed(const Duration(milliseconds: 500), _syncLedState);
     // 操作画面に入っている間は HB を送り続ける。3 秒応答が無ければ "CONN_LOST"
     // を結果にして自動 pop。HomePage 側で再 scan される。
@@ -126,12 +130,12 @@ class _X68kKeyboardPageState extends State<X68kKeyboardPage> {
   }
 
   Future<void> _syncLedState() async {
-    const insScancode = 0x5E;
+    const capsScancode = 0x5D;
     for (int i = 0; i < 2; i++) {
       if (!mounted) return;
-      widget.midi.sendNoteOn(widget.channel, insScancode, 127);
+      widget.midi.sendNoteOn(widget.channel, capsScancode, 127);
       await Future.delayed(const Duration(milliseconds: 30));
-      widget.midi.sendNoteOff(widget.channel, insScancode);
+      widget.midi.sendNoteOff(widget.channel, capsScancode);
       // X68000 側で LED 状態を更新 → LED 制御コマンドを返す処理に十分余裕を持たせる
       await Future.delayed(const Duration(milliseconds: 200));
     }
