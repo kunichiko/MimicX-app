@@ -6,6 +6,7 @@
 // ===================================================================================
 
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1265,19 +1266,68 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
             final showTrackpad = hasMouse && widget.trackpadVisible;
             if (!showTrackpad) {
               // トラックパッドが無い (= マウス未搭載 or 非表示) ときは、空いた縦領域を
-              // キーボードが埋めるように h を縦方向に伸ばす。
-              return _buildKeyboard(constraints, fillHeight: true);
+              // キーボードが埋めるように h を縦方向に伸ばす (上限あり)。
+              // 伸ばしきれずに余った高さは上に空けて下寄せにする。iPhone Duo の
+              // 縦持ちでは折り目 (画面中央) から離れ、親指も届きやすい。横に余る
+              // (横長のウインドウ) ときは中央に置く。
+              return Align(
+                alignment: Alignment.bottomCenter,
+                child: _buildKeyboard(constraints, fillHeight: true),
+              );
             }
             // トラックパッドの最小高 (これ以上は確保する)
             const trackpadMinH = 100.0;
             // キーボードに与えられる最大高さ
             final maxKbH =
                 (constraints.maxHeight - trackpadMinH).clamp(0.0, double.infinity);
-            // キーボードは幅でも高さでもはみ出さないよう u を計算
-            final keyboard = _buildKeyboard(BoxConstraints(
+            final kbConstraints = BoxConstraints(
               maxWidth: constraints.maxWidth,
               maxHeight: maxKbH,
-            ));
+            );
+            // 高さに余裕がある画面 (iPad、iPhone Duo の内側画面、大きなウインドウ)
+            // では、キーボードの下の残りを全部トラックパッドにするとトラックパッドが
+            // キーボードより大きくなる。キーボードを優先して高さを配分する:
+            //   1. キーボードはキー幅の _maxHPerU 倍まで縦に伸ばす。ただしトラック
+            //      パッド用に高さの 35% (最低 trackpadMinH) は残す
+            //   2. トラックパッドは残りを使うが、幅の 0.4 倍まで
+            //   3. それでも余る高さは上に空けて下寄せにする (Duo の縦持ちでは
+            //      折り目 = 画面中央から離れる)
+            // 余裕がない画面 (スマホの横画面) では kbH = 自然な高さ、トラックパッド
+            // = 残り全部となり、従来と同じ配置になる。
+            if (constraints.maxHeight.isFinite) {
+              final maxH = constraints.maxHeight;
+              final naturalKbH = _keyboardHeight(kbConstraints);
+              final stretchedKbH =
+                  _keyboardHeight(kbConstraints, hPerU: _maxHPerU);
+              final trackpadFloor = math.max(trackpadMinH, maxH * 0.35);
+              final kbH = math.max(
+                naturalKbH,
+                math.min(stretchedKbH, maxH - trackpadFloor),
+              );
+              final trackpadH = math.min(
+                maxH - kbH,
+                math.max(constraints.maxWidth * 0.4, trackpadFloor),
+              );
+              final keyboard = _buildKeyboard(
+                BoxConstraints(maxWidth: constraints.maxWidth, maxHeight: kbH),
+                fillHeight: true,
+              );
+              return Column(
+                children: [
+                  const Spacer(),
+                  keyboard,
+                  SizedBox(
+                    height: trackpadH,
+                    child: _TrackpadArea(
+                      midi: widget.midi,
+                      channel: widget.mouseChannel!,
+                    ),
+                  ),
+                ],
+              );
+            }
+            // キーボードは幅でも高さでもはみ出さないよう u を計算
+            final keyboard = _buildKeyboard(kbConstraints);
             return Column(
               children: [
                 keyboard,
@@ -1312,6 +1362,24 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
   // パディング (innerPad * 2 = 16) を加えて keyboardH = 5.8425*u + 16
   static const double _rowsPerH = 6.15;
   static const double _hPerU = 0.95;
+  /// fillHeight で行高を伸ばすときの上限 (キー幅 u に対する比)。
+  static const double _maxHPerU = 1.25;
+
+  /// [_buildKeyboard] で組んだときのキーボードの高さ (u の計算は _buildKeyboard と
+  /// 同じ)。[hPerU] は行高のキー幅比 (既定 = fillHeight なしの高さ)。
+  double _keyboardHeight(BoxConstraints constraints, {double hPerU = _hPerU}) {
+    const outerPadding = 16.0;
+    const innerPadTotal = 8.0 * 2;
+    double u = (constraints.maxWidth - outerPadding) / _totalW;
+    if (constraints.maxHeight.isFinite) {
+      final availableH = constraints.maxHeight - innerPadTotal;
+      if (availableH > 0) {
+        final uByHeight = availableH / (_rowsPerH * _hPerU);
+        if (uByHeight < u) u = uByHeight;
+      }
+    }
+    return innerPadTotal + _rowsPerH * u * hPerU;
+  }
 
   Widget _buildKeyboard(BoxConstraints constraints, {bool fillHeight = false}) {
     // 各キーは declared width 内にパディングを内包するため、unit 計算は単純な分割で OK
@@ -1334,9 +1402,16 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
     // fillHeight=true のときは、u (キー幅) が width で律速されて空いた縦余白を、
     // h (行高) を独立に伸ばして埋める。キーがやや縦長になるが、幅を保ったまま
     // 画面いっぱいまで広がる挙動になる。
+    //
+    // ただし伸ばすのは [_maxHPerU] まで。縦に長い画面 (iPhone Duo の内側画面の
+    // 縦持ち、iPad の縦画面、縦に広げた macOS / Windows のウインドウ) では
+    // 上限なく伸ばすとキーが極端に縦長になる。余った高さは build() 側で
+    // キーボードを下寄せにして上に逃がす。
     if (fillHeight && constraints.maxHeight.isFinite) {
       final fillH = (constraints.maxHeight - innerPadTotal) / _rowsPerH;
       if (fillH > h) h = fillH;
+      final maxH = u * _maxHPerU;
+      if (h > maxH) h = maxH;
     }
     _h = h;  // ポップアップサイズ計算用に保存
 

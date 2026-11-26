@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'about_page.dart';
 import 'combined_session_page.dart';
+import 'demo_adapter.dart';
 import 'device_nickname_store.dart';
 import 'device_rename_page.dart';
 import 'l10n/app_localizations.dart';
@@ -156,8 +157,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     // フォーカスの無い MimicX にキーイベントは届かないため、映像表示アプリ側で
     // 受けたキーをここへ転送してもらう (protocol.dart の sub-id 0x02)。
     Future.microtask(_midi.startRemoteInput);
-    // 起動時に自動スキャン
-    Future.microtask(_scanAndIdentify);
+    // 起動時に自動スキャン (デモ用アダプタの表示設定を読んでから)
+    Future.microtask(() async {
+      _midi.demoEnabled = await DemoModeStore.load();
+      if (mounted) await _scanAndIdentify();
+    });
+  }
+
+  Future<void> _openAbout() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const AboutPage()),
+    );
+    // about 画面でデモ用アダプタの表示を切り替えたら一覧に反映する
+    final demo = await DemoModeStore.load();
+    if (!mounted || demo == _midi.demoEnabled) return;
+    _midi.demoEnabled = demo;
+    if (!_scanning) await _scanAndIdentify();
   }
 
   @override
@@ -712,9 +727,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           IconButton(
             icon: const Icon(Icons.info_outline),
             tooltip: l.homeAboutTooltip,
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const AboutPage()),
-            ),
+            onPressed: _openAbout,
           ),
         ],
       ),
@@ -810,11 +823,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                       ),
                                     ),
                                     const SizedBox(width: 6),
-                                    Icon(
-                                      device.isBle ? Icons.bluetooth : Icons.usb,
-                                      size: 16,
-                                      color: Colors.grey,
-                                    ),
+                                    if (device.isDemo)
+                                      Text(
+                                        l.homeDemoBadge,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: Theme.of(context).colorScheme.tertiary,
+                                        ),
+                                      )
+                                    else
+                                      Icon(
+                                        device.isBle ? Icons.bluetooth : Icons.usb,
+                                        size: 16,
+                                        color: Colors.grey,
+                                      ),
                                   ],
                                 ),
                                 if (identity != null) ...[

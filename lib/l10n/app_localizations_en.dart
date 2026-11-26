@@ -208,6 +208,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aboutLicensesButton => 'Open source licenses';
 
   @override
+  String get aboutDemoAdapters => 'Show demo adapters';
+
+  @override
+  String get aboutDemoAdaptersHint =>
+      'Adds virtual adapters to the device list so you can try the screens without hardware. Nothing is sent to a real device.';
+
+  @override
+  String get homeDemoBadge => 'DEMO';
+
+  @override
   String get aboutCopyright => '© 2026 Kunihiko Ohnaka';
 
   @override

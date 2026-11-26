@@ -301,6 +301,8 @@ class Md6Mode extends ChannelMode {
   @override
   Widget buildBody(BuildContext context, MidiService midi) {
     return _LandscapeGate(
+      // D-pad 200 + 6 ボタン 216 を幅 85% に並べ、間に Start (88) が入る幅
+      minWidth: 600,
       child: _Md6Layout(
         midi: midi,
         settings: _settings,
@@ -363,6 +365,8 @@ class LibbleRabbleMode extends ChannelMode {
   @override
   Widget buildBody(BuildContext context, MidiService midi) {
     return _LandscapeGate(
+      // D-pad 200 × 2 + A/B 160 を幅 95% に並べられる幅
+      minWidth: 600,
       child: _LibbleRabbleLayout(midi: midi, settings: _settings),
     );
   }
@@ -427,21 +431,44 @@ class MsxMouseMode extends ChannelMode {
   }
 }
 
-/// OS の回転がまだ完了していない過渡フレームでは portrait 幅でレイアウトが
-/// 組まれて RenderFlex がオーバーフローするので、landscape になるまで描画を
-/// 保留する。
+/// 操作画面は横向き固定 (OrientationHelper.landscape) だが、OS の回転がまだ
+/// 完了していない過渡フレームでは portrait 幅でレイアウトが組まれて RenderFlex が
+/// オーバーフローするので、レイアウトが収まる幅になるまで描画を保留する。
+///
+/// 「landscape になるまで」ではなく「[minWidth] 以上あれば」描くのは、横向き固定が
+/// 効かない環境があるため。iPhone Duo の内側画面 (縦持ち 669pt 幅) や iPad の
+/// マルチタスクでは OS がアプリの向き指定を無視するので、landscape を待つと
+/// 縦持ちのあいだ何も表示されない。普通の iPhone の縦画面 (〜440pt) は
+/// [minWidth] 未満なので、従来どおり回転完了まで隠れる。
 class _LandscapeGate extends StatelessWidget {
   final Widget child;
-  const _LandscapeGate({required this.child});
+
+  /// このレイアウトがオーバーフローせずに組める最小の幅 (論理ピクセル)。
+  final double minWidth;
+
+  const _LandscapeGate({required this.child, this.minWidth = 480});
 
   @override
   Widget build(BuildContext context) {
-    return OrientationBuilder(
-      builder: (context, orientation) {
-        if (orientation != Orientation.landscape) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final landscape = constraints.maxWidth >= constraints.maxHeight;
+        if (landscape) return child;
+        if (constraints.maxWidth < minWidth) {
           return const SizedBox.expand();
         }
-        return child;
+        // 縦持ち (iPhone Duo の内側画面 / iPad など) では操作部を下半分に
+        // まとめる。Duo の縦持ちは画面のちょうど中央を折り目が横切るので、
+        // 中央に置くと十字キーやボタンが折り目をまたぎ、半開きで押しにくい。
+        // 下半分は親指も届きやすい。下半分に収まらない高さなら全体を使う
+        // (ATARI + SELECT/RUN の縦積みで約 260pt)。
+        if (constraints.maxHeight / 2 < 280) return child;
+        return Column(
+          children: [
+            const Spacer(),
+            Expanded(child: child),
+          ],
+        );
       },
     );
   }
@@ -934,57 +961,75 @@ class _AtariLayout extends StatelessWidget {
       ),
     ];
 
-    return SafeArea(
-      child: Stack(
+    // D-pad (200) と A/B (groupW) を幅 80% の両端に置いたときの間の空き。
+    // SELECT/RUN (84 + 12 + 68) が入らない幅 (iPhone Duo の内側画面を縦持ち
+    // したときなど) では、重ならないよう SELECT/RUN を十字キーの段の下に並べる。
+    const dpadSize = 200.0;
+    const townsRowW = 84.0 + 12 + 68 + 16;
+
+    // TOWNS パッド RUN/SELECT (単独タップ)。
+    // 実機の FM TOWNS パッドと同じく SELECT / RUN を横並びで置く。
+    final townsRow = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _SingleButton(
+          midi: midi, note: MidiService.noteSelect, label: 'SELECT',
+          color: Colors.grey, size: 36, width: 84,
+          externalPressed: gamepadPressed,
+        ),
+        const SizedBox(width: 12),
+        _SingleButton(
+          midi: midi, note: MidiService.noteRun, label: 'RUN',
+          color: Colors.grey, size: 36, width: 68,
+          externalPressed: gamepadPressed,
+        ),
+      ],
+    );
+    final mainRow = FractionallySizedBox(
+      widthFactor: 0.8,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // TOWNS パッド RUN/SELECT (中央、単独タップ)。
-          // 実機の FM TOWNS パッドと同じく SELECT / RUN を中央に横並びで置く。
-          if (settings.townsPad)
-            Align(
-              alignment: Alignment.center,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _SingleButton(
-                    midi: midi, note: MidiService.noteSelect, label: 'SELECT',
-                    color: Colors.grey, size: 36, width: 84,
-                    externalPressed: gamepadPressed,
-                  ),
-                  const SizedBox(width: 12),
-                  _SingleButton(
-                    midi: midi, note: MidiService.noteRun, label: 'RUN',
-                    color: Colors.grey, size: 36, width: 68,
-                    externalPressed: gamepadPressed,
-                  ),
-                ],
-              ),
-            ),
-          Center(
-            child: FractionallySizedBox(
-              widthFactor: 0.8,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _DPad(
-                    midi: midi,
-                    deadZoneRatio: settings.deadZoneRatio,
-                    externalPressed: gamepadPressed,
-                  ),
-                  _ButtonGroup(
-                    midi: midi,
-                    buttons: buttons,
-                    groupSize: const Size(groupW, btnSize),
-                    extraHitRadius: settings.extraHitRadius,
-                    turboNotes: settings.turboNotes,
-                    turboRate: settings.turboRate,
-                    externalPressed: gamepadPressed,
-                  ),
-                ],
-              ),
-            ),
+          _DPad(
+            midi: midi,
+            deadZoneRatio: settings.deadZoneRatio,
+            externalPressed: gamepadPressed,
+          ),
+          _ButtonGroup(
+            midi: midi,
+            buttons: buttons,
+            groupSize: const Size(groupW, btnSize),
+            extraHitRadius: settings.extraHitRadius,
+            turboNotes: settings.turboNotes,
+            turboRate: settings.turboRate,
+            externalPressed: gamepadPressed,
           ),
         ],
       ),
+    );
+
+    return SafeArea(
+      child: LayoutBuilder(builder: (context, constraints) {
+        final midGap = constraints.maxWidth * 0.8 - dpadSize - groupW;
+        if (!settings.townsPad || midGap >= townsRowW) {
+          return Stack(
+            children: [
+              if (settings.townsPad) Center(child: townsRow),
+              Center(child: mainRow),
+            ],
+          );
+        }
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              mainRow,
+              const SizedBox(height: 16),
+              townsRow,
+            ],
+          ),
+        );
+      }),
     );
   }
 }

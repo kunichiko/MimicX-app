@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'dart:typed_data';
 import 'dart:ui' show VoidCallback;
 import 'package:flutter_midi_command/flutter_midi_command.dart';
+import 'demo_adapter.dart';
 import 'protocol.dart';
 
 /// アダプタ往復時間の計測ログ (既定 false。通常ビルドには影響しない)。
@@ -34,6 +35,9 @@ class MidiDeviceInfo {
 
   /// BLE-MIDI 経由のデバイスか。
   bool get isBle => type == 'BLE';
+
+  /// デモ用の仮想アダプタ ([DemoAdapter]) か。
+  bool get isDemo => type == DemoAdapter.deviceType;
 }
 
 class MidiService {
@@ -131,9 +135,34 @@ class MidiService {
   /// HomePage が自動再 scan のトリガに使う。
   Stream<String>? get onMidiSetupChanged => _midiCommand.onMidiSetupChanged;
 
+  // --- デモ用の仮想アダプタ (demo_adapter.dart) -----------------------------
+  // 有効にすると scanDevices() の結果に仮想アダプタが並び、接続中の送受信は
+  // プラグインを通らずエミュレータ内で完結する。
+
+  /// 仮想アダプタを一覧に出すか。HomePage が [DemoModeStore] から設定する。
+  bool demoEnabled = false;
+
+  final Map<String, DemoAdapter> _demoAdapters = {
+    for (final k in DemoAdapterKind.values)
+      DemoAdapter(k).id: DemoAdapter(k),
+  };
+
+  /// 接続中の仮想アダプタ (実機に接続中 / 未接続なら null)。
+  DemoAdapter? _connectedDemo;
+
+  List<MidiDeviceInfo> get _demoDeviceInfos => [
+        for (final a in _demoAdapters.values)
+          MidiDeviceInfo(
+            name: a.name,
+            id: a.id,
+            type: DemoAdapter.deviceType,
+            device: MidiDevice(a.id, a.name, DemoAdapter.deviceType, false),
+          ),
+      ];
+
   Future<List<MidiDeviceInfo>> scanDevices() async {
     final devices = await _midiCommand.devices ?? [];
-    return devices
+    final real = devices
         // 自分が公開している仮想ポート (リモート入力用) はアダプタ候補ではない。
         // 除外しないと識別スキャンが「接続 → IDENTIFY → 切断」で自分自身を叩き、
         // startRemoteInput() が張った接続を切ってしまう。プラグインは own-virtual の
@@ -148,6 +177,7 @@ class MidiService {
               device: d,
             ))
         .toList();
+    return [...real, if (demoEnabled) ..._demoDeviceInfos];
   }
 
   // --- BLE-MIDI -------------------------------------------------------------
@@ -349,6 +379,19 @@ class MidiService {
       _bleConnected ? 5 : heartBeatMaxConsecutiveFails;
 
   Future<bool> connect(MidiDeviceInfo deviceInfo) async {
+    final demo = _demoAdapters[deviceInfo.id];
+    if (deviceInfo.isDemo && demo != null) {
+      // 仮想アダプタ: プラグインには触れず、送受信をエミュレータに繋ぐだけ。
+      await _rxSubscription?.cancel();
+      _rxSubscription = null;
+      demo
+        ..reset()
+        ..onReply = _onBytesReceived;
+      _connectedDemo = demo;
+      _connectedDevice = deviceInfo.device;
+      sendSysEx(SysExBuilder.reset(0));
+      return true;
+    }
     try {
       // 前回セッションが残っている (iOS で画面回転後に device.connected=true の
       // まま port 側だけ閉じてしまうケースが観測された) と connectToDevice が
@@ -459,8 +502,10 @@ class MidiService {
     return null;
   }
 
-  void _onMidiReceived(MidiPacket packet) {
-    final data = packet.data;
+  void _onMidiReceived(MidiPacket packet) => _onBytesReceived(packet.data);
+
+  /// アダプタからの受信バイト列を処理する (実機はプラグイン、デモはエミュレータから)。
+  void _onBytesReceived(List<int> data) {
     for (final byte in data) {
       if (byte == 0xF0) {
         _sysexBuf.clear();
@@ -576,6 +621,13 @@ class MidiService {
       }
     }
     _pendingAcks.clear();
+    final demo = _connectedDemo;
+    if (demo != null) {
+      demo.onReply = null;
+      _connectedDemo = null;
+      _connectedDevice = null;
+      return;
+    }
     final dev = _connectedDevice;
     if (dev != null) {
       _connectedDevice = null;
@@ -602,23 +654,30 @@ class MidiService {
   /// 未接続時は従来どおり null (= ブロードキャスト) にしておく。
   String? get _txDeviceId => _connectedDevice?.id;
 
-  void sendNoteOn(int channel, int note, int velocity) {
-    final data = Uint8List.fromList([0x90 | (channel & 0x0F), note & 0x7F, velocity & 0x7F]);
+  /// 送信の共通出口。仮想アダプタに接続中はプラグインを通さずエミュレータへ渡す。
+  void _send(Uint8List data) {
+    final demo = _connectedDemo;
+    if (demo != null) {
+      demo.receive(data);
+      return;
+    }
     _midiCommand.sendData(data, deviceId: _txDeviceId);
+  }
+
+  void sendNoteOn(int channel, int note, int velocity) {
+    _send(Uint8List.fromList([0x90 | (channel & 0x0F), note & 0x7F, velocity & 0x7F]));
   }
 
   void sendNoteOff(int channel, int note) {
-    final data = Uint8List.fromList([0x80 | (channel & 0x0F), note & 0x7F, 0x00]);
-    _midiCommand.sendData(data, deviceId: _txDeviceId);
+    _send(Uint8List.fromList([0x80 | (channel & 0x0F), note & 0x7F, 0x00]));
   }
 
   void sendCC(int channel, int cc, int value) {
-    final data = Uint8List.fromList([0xB0 | (channel & 0x0F), cc & 0x7F, value & 0x7F]);
-    _midiCommand.sendData(data, deviceId: _txDeviceId);
+    _send(Uint8List.fromList([0xB0 | (channel & 0x0F), cc & 0x7F, value & 0x7F]));
   }
 
   void sendSysEx(List<int> data) {
-    _midiCommand.sendData(Uint8List.fromList(data), deviceId: _txDeviceId);
+    _send(Uint8List.fromList(data));
   }
 
   // パッドモード設定 (SysEx SET_CONFIG)

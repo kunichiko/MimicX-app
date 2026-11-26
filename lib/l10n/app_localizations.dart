@@ -428,6 +428,24 @@ abstract class AppLocalizations {
   /// **'Open source licenses'**
   String get aboutLicensesButton;
 
+  /// No description provided for @aboutDemoAdapters.
+  ///
+  /// In en, this message translates to:
+  /// **'Show demo adapters'**
+  String get aboutDemoAdapters;
+
+  /// No description provided for @aboutDemoAdaptersHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Adds virtual adapters to the device list so you can try the screens without hardware. Nothing is sent to a real device.'**
+  String get aboutDemoAdaptersHint;
+
+  /// No description provided for @homeDemoBadge.
+  ///
+  /// In en, this message translates to:
+  /// **'DEMO'**
+  String get homeDemoBadge;
+
   /// No description provided for @aboutCopyright.
   ///
   /// In en, this message translates to:
