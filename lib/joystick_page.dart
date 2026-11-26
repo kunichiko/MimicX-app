@@ -453,10 +453,22 @@ class _LandscapeGate extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final landscape = constraints.maxWidth >= constraints.maxHeight;
-        if (!landscape && constraints.maxWidth < minWidth) {
+        if (landscape) return child;
+        if (constraints.maxWidth < minWidth) {
           return const SizedBox.expand();
         }
-        return child;
+        // 縦持ち (iPhone Duo の内側画面 / iPad など) では操作部を下半分に
+        // まとめる。Duo の縦持ちは画面のちょうど中央を折り目が横切るので、
+        // 中央に置くと十字キーやボタンが折り目をまたぎ、半開きで押しにくい。
+        // 下半分は親指も届きやすい。下半分に収まらない高さなら全体を使う
+        // (ATARI + SELECT/RUN の縦積みで約 260pt)。
+        if (constraints.maxHeight / 2 < 280) return child;
+        return Column(
+          children: [
+            const Spacer(),
+            Expanded(child: child),
+          ],
+        );
       },
     );
   }
@@ -951,64 +963,71 @@ class _AtariLayout extends StatelessWidget {
 
     // D-pad (200) と A/B (groupW) を幅 80% の両端に置いたときの間の空き。
     // SELECT/RUN (84 + 12 + 68) が入らない幅 (iPhone Duo の内側画面を縦持ち
-    // したときなど) では、重ならないよう SELECT/RUN を下側へずらす。
+    // したときなど) では、重ならないよう SELECT/RUN を十字キーの段の下に並べる。
     const dpadSize = 200.0;
     const townsRowW = 84.0 + 12 + 68 + 16;
+
+    // TOWNS パッド RUN/SELECT (単独タップ)。
+    // 実機の FM TOWNS パッドと同じく SELECT / RUN を横並びで置く。
+    final townsRow = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _SingleButton(
+          midi: midi, note: MidiService.noteSelect, label: 'SELECT',
+          color: Colors.grey, size: 36, width: 84,
+          externalPressed: gamepadPressed,
+        ),
+        const SizedBox(width: 12),
+        _SingleButton(
+          midi: midi, note: MidiService.noteRun, label: 'RUN',
+          color: Colors.grey, size: 36, width: 68,
+          externalPressed: gamepadPressed,
+        ),
+      ],
+    );
+    final mainRow = FractionallySizedBox(
+      widthFactor: 0.8,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          _DPad(
+            midi: midi,
+            deadZoneRatio: settings.deadZoneRatio,
+            externalPressed: gamepadPressed,
+          ),
+          _ButtonGroup(
+            midi: midi,
+            buttons: buttons,
+            groupSize: const Size(groupW, btnSize),
+            extraHitRadius: settings.extraHitRadius,
+            turboNotes: settings.turboNotes,
+            turboRate: settings.turboRate,
+            externalPressed: gamepadPressed,
+          ),
+        ],
+      ),
+    );
+
     return SafeArea(
       child: LayoutBuilder(builder: (context, constraints) {
         final midGap = constraints.maxWidth * 0.8 - dpadSize - groupW;
-        final townsAlign = midGap >= townsRowW
-            ? Alignment.center
-            : const Alignment(0, 0.6);
-        return Stack(
-        children: [
-          // TOWNS パッド RUN/SELECT (中央、単独タップ)。
-          // 実機の FM TOWNS パッドと同じく SELECT / RUN を中央に横並びで置く。
-          if (settings.townsPad)
-            Align(
-              alignment: townsAlign,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _SingleButton(
-                    midi: midi, note: MidiService.noteSelect, label: 'SELECT',
-                    color: Colors.grey, size: 36, width: 84,
-                    externalPressed: gamepadPressed,
-                  ),
-                  const SizedBox(width: 12),
-                  _SingleButton(
-                    midi: midi, note: MidiService.noteRun, label: 'RUN',
-                    color: Colors.grey, size: 36, width: 68,
-                    externalPressed: gamepadPressed,
-                  ),
-                ],
-              ),
-            ),
-          Center(
-            child: FractionallySizedBox(
-              widthFactor: 0.8,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _DPad(
-                    midi: midi,
-                    deadZoneRatio: settings.deadZoneRatio,
-                    externalPressed: gamepadPressed,
-                  ),
-                  _ButtonGroup(
-                    midi: midi,
-                    buttons: buttons,
-                    groupSize: const Size(groupW, btnSize),
-                    extraHitRadius: settings.extraHitRadius,
-                    turboNotes: settings.turboNotes,
-                    turboRate: settings.turboRate,
-                    externalPressed: gamepadPressed,
-                  ),
-                ],
-              ),
-            ),
+        if (!settings.townsPad || midGap >= townsRowW) {
+          return Stack(
+            children: [
+              if (settings.townsPad) Center(child: townsRow),
+              Center(child: mainRow),
+            ],
+          );
+        }
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              mainRow,
+              const SizedBox(height: 16),
+              townsRow,
+            ],
           ),
-        ],
         );
       }),
     );
