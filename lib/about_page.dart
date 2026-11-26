@@ -1,6 +1,48 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'demo_adapter.dart';
 import 'l10n/app_localizations.dart';
+
+/// デモ用の仮想アダプタ (demo_adapter.dart) の表示スイッチ。
+/// 設定は [DemoModeStore] に保存し、ホーム画面は戻ったときに読み直して再スキャンする。
+class _DemoAdaptersSwitch extends StatefulWidget {
+  const _DemoAdaptersSwitch();
+
+  @override
+  State<_DemoAdaptersSwitch> createState() => _DemoAdaptersSwitchState();
+}
+
+class _DemoAdaptersSwitchState extends State<_DemoAdaptersSwitch> {
+  bool? _enabled;
+
+  @override
+  void initState() {
+    super.initState();
+    DemoModeStore.load().then((v) {
+      if (mounted) setState(() => _enabled = v);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 480),
+      child: SwitchListTile(
+        secondary: const Icon(Icons.science_outlined),
+        title: Text(l.aboutDemoAdapters),
+        subtitle: Text(l.aboutDemoAdaptersHint),
+        value: _enabled ?? false,
+        onChanged: _enabled == null
+            ? null
+            : (v) {
+                setState(() => _enabled = v);
+                DemoModeStore.save(v);
+              },
+      ),
+    );
+  }
+}
 
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key});
@@ -57,6 +99,8 @@ class AboutPage extends StatelessWidget {
                 label: Text(l.aboutLicensesButton),
                 onPressed: () => _showLicenses(context, l),
               ),
+              const SizedBox(height: 24),
+              const _DemoAdaptersSwitch(),
               const SizedBox(height: 32),
               Text(
                 l.aboutCopyright,

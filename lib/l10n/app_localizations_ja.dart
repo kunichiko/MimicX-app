@@ -203,6 +203,16 @@ class AppLocalizationsJa extends AppLocalizations {
   String get aboutLicensesButton => 'オープンソースライセンス';
 
   @override
+  String get aboutDemoAdapters => 'デモ用アダプタを表示';
+
+  @override
+  String get aboutDemoAdaptersHint =>
+      '実機が無くても画面を試せるよう、仮想のアダプタを一覧に追加します。実機には何も送信しません。';
+
+  @override
+  String get homeDemoBadge => 'デモ';
+
+  @override
   String get aboutCopyright => '© 2026 Kunihiko Ohnaka';
 
   @override

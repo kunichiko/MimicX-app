@@ -159,6 +159,9 @@
     }
   },
   "aboutLicensesButton": "Open source licenses",
+  "aboutDemoAdapters": "Show demo adapters",
+  "aboutDemoAdaptersHint": "Adds virtual adapters to the device list so you can try the screens without hardware. Nothing is sent to a real device.",
+  "homeDemoBadge": "DEMO",
   "aboutCopyright": "© 2026 Kunihiko Ohnaka",
   "switchToKeyboard": "Switch to keyboard",
   "switchToJoystick": "Switch to joystick",
