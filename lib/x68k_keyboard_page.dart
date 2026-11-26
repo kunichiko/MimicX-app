@@ -1285,9 +1285,10 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
             );
             // トラックパッドの最大高。縦に長い画面 (iPhone Duo の内側画面の縦持ち、
             // iPad の縦画面、縦に広げたウインドウ) では、キーボードの下の残りを
-            // 全部トラックパッドにすると極端に大きくなるので、幅の半分までにする。
+            // 全部トラックパッドにすると極端に大きくなるので、幅の 0.4 倍までにする
+            // (0.5 倍だと iPad の横画面などでキーボードより大きくなった)。
             final trackpadMaxH =
-                (constraints.maxWidth * 0.5).clamp(trackpadMinH, double.infinity);
+                (constraints.maxWidth * 0.4).clamp(trackpadMinH, double.infinity);
             if (constraints.maxHeight.isFinite &&
                 constraints.maxHeight - _keyboardHeight(kbConstraints) >
                     trackpadMaxH) {
