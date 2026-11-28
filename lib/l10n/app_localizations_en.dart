@@ -323,4 +323,7 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get linkDiagHint =>
       'Input reaches the game port within roughly half to all of the round-trip time. \"Wireless only\" excludes the time inside the adapter.';
+
+  @override
+  String get keyboardRightClickToggleHint => '* Right-click a key to toggle it';
 }

@@ -649,6 +649,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Input reaches the game port within roughly half to all of the round-trip time. \"Wireless only\" excludes the time inside the adapter.'**
   String get linkDiagHint;
+
+  /// No description provided for @keyboardRightClickToggleHint.
+  ///
+  /// In en, this message translates to:
+  /// **'* Right-click a key to toggle it'**
+  String get keyboardRightClickToggleHint;
 }
 
 class _AppLocalizationsDelegate

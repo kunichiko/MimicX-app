@@ -205,5 +205,6 @@
   "linkDiagStatMax": "Max",
   "linkDiagStatLost": "No response",
   "linkDiagHistogram": "Distribution (whole adapter, ms)",
-  "linkDiagHint": "Input reaches the game port within roughly half to all of the round-trip time. \"Wireless only\" excludes the time inside the adapter."
+  "linkDiagHint": "Input reaches the game port within roughly half to all of the round-trip time. \"Wireless only\" excludes the time inside the adapter.",
+  "keyboardRightClickToggleHint": "* Right-click a key to toggle it"
 }
