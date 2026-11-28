@@ -317,12 +317,17 @@ class StandardX68kMode extends ChannelMode {
     // (Combined で背面のときは相手画面の向きを尊重)。
     if (active) OrientationHelper.landscape();
     imeLine.setActive(active);
+    // Windows: 日本語入力のオンを検知できるよう、前面の間は IME を有効
+    // (オフ状態) にしておく。IME がオフのままなら物理キーはそのまま届き、
+    // 半角/全角等でオンにしたら IME 入力バーに切り替わる。
+    WindowsIme.setEnabled(active);
   }
 
   @override
   Future<void> onExit(MidiService midi) async {
     // ライン入力モード等へ切り替えたら IME 入力バーは出さない。
     imeLine.setActive(false);
+    await WindowsIme.setEnabled(false);
   }
 
   void _toggleNumpad() {

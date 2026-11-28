@@ -1,14 +1,24 @@
 #include "flutter_window.h"
 
+#include <commctrl.h>
 #include <imm.h>
 
 #include <optional>
 #include <variant>
 
+#include <flutter/event_stream_handler_functions.h>
 #include <flutter/method_result_functions.h>
 #include <flutter/standard_method_codec.h>
 
 #include "flutter/generated_plugin_registrant.h"
+
+namespace {
+// IME 状態のポーリング用タイマー ID (トップレベルウィンドウに設定)。
+// WM_IME_NOTIFY を送ってこない IME への保険。
+constexpr UINT_PTR kImePollTimerId = 0x4D49;  // 'MI'
+constexpr UINT kImePollIntervalMs = 250;
+constexpr UINT_PTR kViewSubclassId = 1;
+}  // namespace
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -79,7 +89,43 @@ bool FlutterWindow::OnCreate() {
           ::ImmAssociateContext(view_hwnd, nullptr);
         }
         result->Success();
+        // 有効/無効で IME の見え方 (オン/オフ) が変わるので通知し直す。
+        EmitImeState(true);
       });
+
+  // "mimicx/input_source" イベントチャネル:
+  //   {japanese: bool, open: bool, conversion: int} を流す。japanese は
+  //   「IME がオンで、かつ日本語 (IME_CMODE_NATIVE) 入力モード」のとき true。
+  //   標準キーボード画面では IME を有効 (オフ状態) にしておき、ユーザーが
+  //   半角/全角等で IME をオンにしたら Dart 側が入力バーを出す。
+  view_hwnd_ = flutter_controller_->view()->GetNativeWindow();
+  input_source_channel_ =
+      std::make_unique<flutter::EventChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "mimicx/input_source",
+          &flutter::StandardMethodCodec::GetInstance());
+  input_source_channel_->SetStreamHandler(
+      std::make_unique<
+          flutter::StreamHandlerFunctions<flutter::EncodableValue>>(
+          [this](const flutter::EncodableValue* arguments,
+                 std::unique_ptr<flutter::EventSink<flutter::EncodableValue>>&&
+                     events)
+              -> std::unique_ptr<
+                  flutter::StreamHandlerError<flutter::EncodableValue>> {
+            input_source_sink_ = std::move(events);
+            EmitImeState(true);
+            return nullptr;
+          },
+          [this](const flutter::EncodableValue* arguments)
+              -> std::unique_ptr<
+                  flutter::StreamHandlerError<flutter::EncodableValue>> {
+            input_source_sink_ = nullptr;
+            return nullptr;
+          }));
+  // IME のオン/オフ通知 (WM_IME_NOTIFY) はフォーカスを持つ Flutter view
+  // (子ウィンドウ) に届くので、サブクラス化して拾う。
+  ::SetWindowSubclass(view_hwnd_, ViewSubclassProc, kViewSubclassId,
+                      reinterpret_cast<DWORD_PTR>(this));
+  ::SetTimer(GetHandle(), kImePollTimerId, kImePollIntervalMs, nullptr);
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
@@ -93,7 +139,63 @@ bool FlutterWindow::OnCreate() {
   return true;
 }
 
+void FlutterWindow::EmitImeState(bool force) {
+  if (!input_source_sink_ || view_hwnd_ == nullptr) return;
+  bool open = false;
+  DWORD conversion = 0;
+  DWORD sentence = 0;
+  // IME を切り離している (標準キーボード以外の画面) ときは NULL が返る。
+  HIMC himc = ::ImmGetContext(view_hwnd_);
+  if (himc != nullptr) {
+    open = ::ImmGetOpenStatus(himc) != FALSE;
+    ::ImmGetConversionStatus(himc, &conversion, &sentence);
+    ::ImmReleaseContext(view_hwnd_, himc);
+  }
+  const bool japanese = open && (conversion & IME_CMODE_NATIVE) != 0;
+  const int state = japanese ? 1 : 0;
+  if (!force && state == last_ime_japanese_) return;
+  last_ime_japanese_ = state;
+  flutter::EncodableMap event{
+      {flutter::EncodableValue("japanese"), flutter::EncodableValue(japanese)},
+      {flutter::EncodableValue("open"), flutter::EncodableValue(open)},
+      {flutter::EncodableValue("conversion"),
+       flutter::EncodableValue(static_cast<int32_t>(conversion))},
+      {flutter::EncodableValue("id"), flutter::EncodableValue("windows-imm")},
+  };
+  input_source_sink_->Success(flutter::EncodableValue(event));
+}
+
+LRESULT CALLBACK FlutterWindow::ViewSubclassProc(HWND hwnd, UINT message,
+                                                 WPARAM wparam, LPARAM lparam,
+                                                 UINT_PTR subclass_id,
+                                                 DWORD_PTR ref_data) {
+  auto* self = reinterpret_cast<FlutterWindow*>(ref_data);
+  const LRESULT result = ::DefSubclassProc(hwnd, message, wparam, lparam);
+  switch (message) {
+    case WM_IME_NOTIFY:
+      if (wparam == IMN_SETOPENSTATUS || wparam == IMN_SETCONVERSIONMODE) {
+        self->EmitImeState(false);
+      }
+      break;
+    case WM_SETFOCUS:
+      self->EmitImeState(false);
+      break;
+  }
+  return result;
+}
+
 void FlutterWindow::OnDestroy() {
+  ::KillTimer(GetHandle(), kImePollTimerId);
+  if (view_hwnd_ != nullptr) {
+    ::RemoveWindowSubclass(view_hwnd_, ViewSubclassProc, kViewSubclassId);
+    view_hwnd_ = nullptr;
+  }
+  if (input_source_channel_) {
+    input_source_channel_->SetStreamHandler(nullptr);
+    input_source_channel_ = nullptr;
+  }
+  input_source_sink_ = nullptr;
+
   // engine が消える前にチャネルを破棄しておく。コールバック中に
   // flutter_controller_ が解放されるレースを防ぐため。
   if (ime_channel_) {
@@ -124,6 +226,12 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   switch (message) {
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
+      break;
+    case WM_TIMER:
+      if (wparam == kImePollTimerId) {
+        EmitImeState(false);
+        return 0;
+      }
       break;
   }
 

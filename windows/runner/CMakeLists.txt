@@ -37,6 +37,8 @@ target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 # flutter_window.cpp が IME 制御で使う ImmAssociateContext /
 # ImmAssociateContextEx は imm32.dll エクスポート。
 target_link_libraries(${BINARY_NAME} PRIVATE "imm32.lib")
+# SetWindowSubclass (Flutter view の WM_IME_NOTIFY を拾う) は comctl32 エクスポート。
+target_link_libraries(${BINARY_NAME} PRIVATE "comctl32.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.

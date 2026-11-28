@@ -7,6 +7,11 @@
 // - macOS: ネイティブ側 (MainFlutterWindow.swift) が入力ソースの変更通知
 //   (kTISNotifySelectedKeyboardInputSourceChanged) を受けて EventChannel で流す。
 //   「日本語の入力ソースで、かつ英字 (Roman) モードでない」ときに on。
+// - Windows: ネイティブ側 (windows/runner/flutter_window.cpp) が Flutter view の
+//   WM_IME_NOTIFY (+ 250ms ポーリング) で IME の状態を調べて流す。
+//   「IME がオンで、かつ日本語 (IME_CMODE_NATIVE) 入力モード」のときに on。
+//   標準キーボード画面の前面中は IME を有効 (オフ状態) にしておく必要がある
+//   (StandardX68kMode が WindowsIme.setEnabled(true) する)。
 // - それ以外のプラットフォーム: 未対応 (常に off)。
 
 import 'dart:async';
@@ -25,7 +30,8 @@ class ImeState {
 
   static StreamSubscription<dynamic>? _sub;
 
-  static bool get supported => !kIsWeb && Platform.isMacOS;
+  static bool get supported =>
+      !kIsWeb && (Platform.isMacOS || Platform.isWindows);
 
   /// 監視を開始する (何度呼んでもよい)。
   static void ensureStarted() {
@@ -34,8 +40,7 @@ class ImeState {
       (event) {
         if (event is! Map) return;
         final on = event['japanese'] == true;
-        debugPrint('[IME] input source: id=${event['id']} mode=${event['mode']}'
-            ' languages=${event['languages']} → japanese=$on');
+        debugPrint('[IME] input source: $event → japanese=$on');
         japaneseOn.value = on;
       },
       onError: (Object e) {
