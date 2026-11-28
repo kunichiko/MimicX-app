@@ -9,7 +9,7 @@
 //   「日本語の入力ソースで、かつ英字 (Roman) モードでない」ときに on。
 // - Windows: ネイティブ側 (windows/runner/flutter_window.cpp) が Flutter view の
 //   WM_IME_NOTIFY (+ 250ms ポーリング) で IME の状態を調べて流す。
-//   「IME がオンで、かつ日本語 (IME_CMODE_NATIVE) 入力モード」のときに on。
+//   「IME がオン」のときに on (変換モードは見ない。Shift+英字の一時切替対策)。
 //   標準キーボード画面の前面中は IME を有効 (オフ状態) にしておく必要がある
 //   (StandardX68kMode が WindowsIme.setEnabled(true) する)。
 // - それ以外のプラットフォーム: 未対応 (常に off)。

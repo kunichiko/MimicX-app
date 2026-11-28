@@ -95,7 +95,7 @@ bool FlutterWindow::OnCreate() {
 
   // "mimicx/input_source" イベントチャネル:
   //   {japanese: bool, open: bool, conversion: int} を流す。japanese は
-  //   「IME がオンで、かつ日本語 (IME_CMODE_NATIVE) 入力モード」のとき true。
+  //   「IME がオン」のとき true (変換モードは見ない。EmitImeState 参照)。
   //   標準キーボード画面では IME を有効 (オフ状態) にしておき、ユーザーが
   //   半角/全角等で IME をオンにしたら Dart 側が入力バーを出す。
   view_hwnd_ = flutter_controller_->view()->GetNativeWindow();
@@ -151,7 +151,12 @@ void FlutterWindow::EmitImeState(bool force) {
     ::ImmGetConversionStatus(himc, &conversion, &sentence);
     ::ImmReleaseContext(view_hwnd_, himc);
   }
-  const bool japanese = open && (conversion & IME_CMODE_NATIVE) != 0;
+  // 変換モード (ひらがな / 英数) は見ず、IME がオンかどうかだけで判定する。
+  // MS-IME は Shift+英字の間だけ変換モードを全角英数 (NATIVE ビットなし) に
+  // 一時的に切り替えるため、モードで判定するとその瞬間に入力バーが消えて
+  // フォーカスが外れ、変換中の文字が確定・送信されて IME と食い違う。
+  // IME がオンなら英数モードでもキーは IME が受け取るので、バーは出しておく。
+  const bool japanese = open;
   const int state = japanese ? 1 : 0;
   if (!force && state == last_ime_japanese_) return;
   last_ime_japanese_ = state;
