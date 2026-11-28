@@ -13,15 +13,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'channel_mode.dart';
+import 'ime_line_bar.dart';
 import 'l10n/app_localizations.dart';
 import 'midi_service.dart';
 import 'mode_scaffold.dart';
 import 'protocol.dart';
 import 'orientation_helper.dart';
-import 'sjis_encoder.dart';
 import 'windows_ime.dart';
 import 'x68k_shared_state.dart';
 import 'x68k_target_rx_log_page.dart';
+import 'x68k_text_typer.dart';
 
 // ===========================================================================
 // X68kKeyboardPage 本体
@@ -228,6 +229,12 @@ class StandardX68kMode extends ChannelMode {
   /// このコントローラを購読することで表示可否を切り替える。
   final StickyKeyController stickyController = StickyKeyController();
 
+  /// 日本語 IM がオンのときキーボードの上に出す入力バーの状態 (macOS のみ)。
+  final ImeLineController imeLine = ImeLineController();
+
+  /// キーボード本体の Focus。IME 入力バーを閉じたときにここへ戻す。
+  final FocusNode _bodyFocus = FocusNode(debugLabel: 'X68kKeyboardBody');
+
   StandardX68kMode({
     required this.channel,
     this.mouseChannel,
@@ -309,6 +316,13 @@ class StandardX68kMode extends ChannelMode {
     // キーボードレイアウトは横向き専用。前面のときだけ向きを固定する
     // (Combined で背面のときは相手画面の向きを尊重)。
     if (active) OrientationHelper.landscape();
+    imeLine.setActive(active);
+  }
+
+  @override
+  Future<void> onExit(MidiService midi) async {
+    // ライン入力モード等へ切り替えたら IME 入力バーは出さない。
+    imeLine.setActive(false);
   }
 
   void _toggleNumpad() {
@@ -339,20 +353,34 @@ class StandardX68kMode extends ChannelMode {
     //   - descendantsAreFocusable: false → 配下を一切 focus 不可
     //   - onKeyEvent: handled       → 来たキーイベントを全消費
     // AppBar 側の戻るボタンは ModeScaffold 側で ExcludeFocus 済み。
-    return Focus(
-      autofocus: true,
-      descendantsAreFocusable: false,
-      onKeyEvent: (node, event) => KeyEventResult.handled,
-      child: _X68kKeyboardBody(
-        midi: midi,
-        channel: channel,
-        mouseChannel: mouseChannel,
-        numpadVisible: _numpadVisible,
-        trackpadVisible: _trackpadVisible,
-        pcKeyboardMode: _pcKeyboardMode,
-        stickyController: stickyController,
-        shared: shared,
-      ),
+    //
+    // 日本語 IM がオンのときは、この Focus の外 (上) に IME 入力バーを出して
+    // そちらの TextField にフォーカスを移す (ImeLineBar)。
+    imeLine.typer ??=
+        X68kTextTyper(midi: midi, channel: channel, shared: shared);
+    return Column(
+      children: [
+        ImeLineBar(controller: imeLine, returnFocusTo: _bodyFocus),
+        Expanded(
+          child: Focus(
+            focusNode: _bodyFocus,
+            autofocus: true,
+            descendantsAreFocusable: false,
+            onKeyEvent: (node, event) => KeyEventResult.handled,
+            child: _X68kKeyboardBody(
+              midi: midi,
+              channel: channel,
+              mouseChannel: mouseChannel,
+              numpadVisible: _numpadVisible,
+              trackpadVisible: _trackpadVisible,
+              pcKeyboardMode: _pcKeyboardMode,
+              stickyController: stickyController,
+              shared: shared,
+              imeLine: imeLine,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -405,6 +433,8 @@ class StandardX68kMode extends ChannelMode {
   @override
   void dispose() {
     stickyController.dispose();
+    imeLine.dispose();
+    _bodyFocus.dispose();
     super.dispose();
   }
 }
@@ -466,6 +496,7 @@ class _X68kKeyboardBody extends StatefulWidget {
   final bool pcKeyboardMode;
   final StickyKeyController stickyController;
   final X68kKeyboardSharedState shared;
+  final ImeLineController? imeLine;
 
   const _X68kKeyboardBody({
     required this.midi,
@@ -476,6 +507,7 @@ class _X68kKeyboardBody extends StatefulWidget {
     required this.pcKeyboardMode,
     required this.stickyController,
     required this.shared,
+    this.imeLine,
   });
 
   @override
@@ -985,6 +1017,26 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
   /// HardwareKeyboard コールバック。マップにあるキーだけハンドルし、それ以外は
   /// false を返して他のリスナ (OS ショートカット等) に処理を委譲する。
   bool _handlePhysicalKey(KeyEvent event) {
+    // Mac の JIS キーボードの「英数」「かな」は入力ソースの切替に使うので OS に渡す。
+    if (event.physicalKey == PhysicalKeyboardKey.lang1 ||
+        event.physicalKey == PhysicalKeyboardKey.lang2) {
+      return false;
+    }
+    // --- 日本語 IM がオン: IME 入力バーに文字を渡す ---
+    final ime = widget.imeLine;
+    if (ime != null && ime.visible) {
+      return _handlePhysicalKeyInImeMode(event, ime);
+    }
+    // IM オン中に押したまま IM がオフになったキーは、離したときに状態だけ片付ける。
+    if (event is KeyUpEvent && _imeHeldKeys.remove(event.physicalKey)) {
+      final sc = _physicalKeyMap[event.physicalKey];
+      if (sc != null) _physicalKeyUp(sc);
+      return true;
+    }
+    if (event is! KeyDownEvent && _imeQueuedKeys.contains(event.physicalKey)) {
+      if (event is KeyUpEvent) _imeQueuedKeys.remove(event.physicalKey);
+      return true;
+    }
     // 物理キーは表示中の画面 (キーボード / ジョイスティック) に関わらず X68k へ送る。
     // このハンドラは HardwareKeyboard のグローバル購読で、Standard モードの body が
     // 生存している間だけ登録される (ライン入力モードでは未登録なので TextField 入力を
@@ -1042,6 +1094,107 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
     // 鳴らすので、イベント自体は consume (return true) して握りつぶす。
     if (event is KeyRepeatEvent) {
       return true;
+    }
+    return false;
+  }
+
+  /// IM オン中も X68000 に直接送るキー (入力欄が空で変換中でないときだけ)。
+  /// 文字キーと修飾キーは IM の入力に使うので含めない。
+  static final Set<PhysicalKeyboardKey> _imePassthroughKeys = {
+    PhysicalKeyboardKey.enter,
+    PhysicalKeyboardKey.backspace,
+    PhysicalKeyboardKey.delete,
+    PhysicalKeyboardKey.tab,
+    PhysicalKeyboardKey.escape,
+    PhysicalKeyboardKey.arrowUp,
+    PhysicalKeyboardKey.arrowDown,
+    PhysicalKeyboardKey.arrowLeft,
+    PhysicalKeyboardKey.arrowRight,
+    PhysicalKeyboardKey.home,
+    PhysicalKeyboardKey.insert,
+    PhysicalKeyboardKey.pageUp,
+    PhysicalKeyboardKey.pageDown,
+    PhysicalKeyboardKey.f1, PhysicalKeyboardKey.f2, PhysicalKeyboardKey.f3,
+    PhysicalKeyboardKey.f4, PhysicalKeyboardKey.f5, PhysicalKeyboardKey.f6,
+    PhysicalKeyboardKey.f7, PhysicalKeyboardKey.f8, PhysicalKeyboardKey.f9,
+    PhysicalKeyboardKey.f10,
+  };
+
+  /// IM オン中に直接送った (押しっぱなし中の) キー。
+  final Set<PhysicalKeyboardKey> _imeHeldKeys = {};
+
+  /// IM オン中、送信中だったため送信待ちに積んだキー (Repeat / Up を握りつぶす)。
+  final Set<PhysicalKeyboardKey> _imeQueuedKeys = {};
+
+  /// Ctrl だけが押されている (Cmd / Option との同時押しは OS のショートカット
+  /// なので除く。Shift は可)。
+  bool _isCtrlOnlyPressed() {
+    final hw = HardwareKeyboard.instance;
+    return hw.isControlPressed && !hw.isMetaPressed && !hw.isAltPressed;
+  }
+
+  static bool _isModifierKey(PhysicalKeyboardKey key) =>
+      key == PhysicalKeyboardKey.controlLeft ||
+      key == PhysicalKeyboardKey.controlRight ||
+      key == PhysicalKeyboardKey.shiftLeft ||
+      key == PhysicalKeyboardKey.shiftRight ||
+      key == PhysicalKeyboardKey.altLeft ||
+      key == PhysicalKeyboardKey.altRight ||
+      key == PhysicalKeyboardKey.metaLeft ||
+      key == PhysicalKeyboardKey.metaRight;
+
+  bool _handlePhysicalKeyInImeMode(KeyEvent event, ImeLineController ime) {
+    final key = event.physicalKey;
+    final sc = _physicalKeyMap[key];
+    if (event is KeyDownEvent) {
+      if (sc != null && _imePassthroughKeys.contains(key) && ime.bufferEmpty) {
+        if (ime.busy) {
+          // 確定文字列を送信中なら、その後に順番どおり送る。
+          _imeQueuedKeys.add(key);
+          ime.enqueueKey(sc);
+        } else {
+          _imeHeldKeys.add(key);
+          _physicalKeyDown(sc);
+        }
+        return true;
+      }
+      // Ctrl + キー (emacs の C-x / C-k 等) も、入力欄が空なら X68000 に送る。
+      // 変換中は IM が Ctrl+K (カタカナ変換) 等に使うので渡す。
+      // Ctrl+Space は入力ソースの切替に使うので送らない。
+      if (sc != null &&
+          _isCtrlOnlyPressed() &&
+          !_isModifierKey(key) &&
+          key != PhysicalKeyboardKey.space &&
+          ime.bufferEmpty) {
+        if (ime.busy) {
+          _imeQueuedKeys.add(key);
+          ime.enqueueKey(sc, ctrl: true);
+        } else {
+          // X68000 の CTRL を押す (物理 Ctrl を離したとき KeyUp 側で離す)。
+          if (!_pressed.contains(X68kTextTyper.scCtrl)) {
+            _physicalKeyDown(X68kTextTyper.scCtrl);
+          }
+          _imeHeldKeys.add(key);
+          _physicalKeyDown(sc);
+        }
+        return true;
+      }
+      return false; // 文字キー等は IM / 入力欄へ
+    }
+    if (event is KeyRepeatEvent) {
+      // 直接送ったキーのリピートはアプリ側 Timer が担当するので握りつぶす。
+      return _imeHeldKeys.contains(key) || _imeQueuedKeys.contains(key);
+    }
+    if (event is KeyUpEvent) {
+      if (_imeHeldKeys.remove(key)) {
+        if (sc != null) _physicalKeyUp(sc);
+        return true;
+      }
+      if (_imeQueuedKeys.remove(key)) return true;
+      // IM オフ中に押して X68000 に送ったまま IM がオンになったキー
+      // (入力ソース切替の Ctrl など) は、ここで離しておく。
+      if (sc != null && _pressed.contains(sc)) _physicalKeyUp(sc);
+      return false;
     }
     return false;
   }
@@ -2367,94 +2520,11 @@ class _LineInputBodyState extends State<_LineInputBody> {
     (label: '→', scancode: 0x3D),
   ];
 
-  // a-z (logical) を X68k スキャンコード A-Z の順で並べたもの。
-  static const List<int> _letterScancodes = [
-    0x1E, 0x2E, 0x2C, 0x20, 0x13, 0x21, 0x22, 0x23, // A B C D E F G H
-    0x18, 0x24, 0x25, 0x26, 0x30, 0x2F, 0x19, 0x1A, // I J K L M N O P
-    0x11, 0x14, 0x1F, 0x15, 0x17, 0x2D, 0x12, 0x2B, // Q R S T U V W X
-    0x16, 0x2A, //                                    Y Z
-  ];
-  // 0-9 → 各スキャンコード
-  static const List<int> _digitScancodes = [
-    0x0B, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A,
-  ];
-  // それ以外の記号類。値は (scancode, 要 SHIFT) の record。
-  static const Map<String, (int, bool)> _symbolMap = {
-    // SHIFT 不要 (JIS 素押し)
-    ' ': (0x35, false),
-    '-': (0x0C, false),
-    '^': (0x0D, false),
-    '¥': (0x0E, false),
-    '\\': (0x0E, false), // US の \ も JIS の ¥ に割り当て
-    '@': (0x1B, false),
-    '[': (0x1C, false),
-    ';': (0x27, false),
-    ':': (0x28, false),
-    ']': (0x29, false),
-    ',': (0x31, false),
-    '.': (0x32, false),
-    '/': (0x33, false),
-    // SHIFT + その他キーで出る JIS 記号
-    '!': (0x02, true),
-    '"': (0x03, true),
-    '#': (0x04, true),
-    '\$': (0x05, true),
-    '%': (0x06, true),
-    '&': (0x07, true),
-    "'": (0x08, true),
-    '(': (0x09, true),
-    ')': (0x0A, true),
-    '=': (0x0C, true),
-    '~': (0x0D, true),
-    '|': (0x0E, true),
-    '`': (0x1B, true),
-    '{': (0x1C, true),
-    '+': (0x27, true),
-    '*': (0x28, true),
-    '}': (0x29, true),
-    '<': (0x31, true),
-    '>': (0x32, true),
-    '?': (0x33, true),
-    '_': (0x34, true),
-    // 制御文字
-    '\n': (0x1D, false), // 改行 → RETURN
-    '\t': (0x10, false), // タブ
-  };
-
-  /// 1 文字 → (scancode, SHIFT 要否)。マップ外なら null。
-  static (int, bool)? _charToScancode(String char) {
-    if (char.length != 1) return null;
-    final code = char.codeUnitAt(0);
-    // a-z
-    if (code >= 0x61 && code <= 0x7A) {
-      return (_letterScancodes[code - 0x61], false);
-    }
-    // A-Z
-    if (code >= 0x41 && code <= 0x5A) {
-      return (_letterScancodes[code - 0x41], true);
-    }
-    // 0-9
-    if (code >= 0x30 && code <= 0x39) {
-      return (_digitScancodes[code - 0x30], false);
-    }
-    return _symbolMap[char];
-  }
-
-  // X68k スキャンコード定数
-  static const int _scShift = 0x70;
-  static const int _scCodeInput = 0x5C;
-  // 送信前に強制 release する修飾キー (SHIFT/CTRL/OPT.1/OPT.2/XF1-5)
-  static const List<int> _modifiersToRelease = [
-    0x70, 0x71, 0x72, 0x73, 0x55, 0x56, 0x57, 0x58, 0x59,
-  ];
-  // 観測した LED のうち点灯中ならトグル押下でオフに戻す対象スキャンコード
-  static const List<int> _toggleKeysToClear = [
-    0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F, 0x60,
-  ];
-
-  // タイミング
-  static const Duration _intraKeyDelay = Duration(milliseconds: 15);
-  static const Duration _interKeyDelay = Duration(milliseconds: 25);
+  late final X68kTextTyper _typer = X68kTextTyper(
+    midi: widget.midi,
+    channel: widget.channel,
+    shared: widget.shared,
+  );
 
   Future<void> _send() async {
     if (_sending) return;
@@ -2468,8 +2538,8 @@ class _LineInputBodyState extends State<_LineInputBody> {
       });
       debugPrint('[LineInput] === send empty (RETURN only) ===');
       try {
-        await _resetState();
-        await _sendOneChar(0x1D, false); // X68k RETURN
+        await _typer.resetState();
+        await _typer.sendOneChar(X68kTextTyper.scReturn, false);
         if (mounted) setState(() => _status = '改行を送信');
       } catch (e) {
         if (mounted) setState(() => _status = 'エラー: $e');
@@ -2479,74 +2549,21 @@ class _LineInputBodyState extends State<_LineInputBody> {
       }
       return;
     }
-    final runes = text.runes.toList();
+    final total = text.runes.length;
     setState(() {
       _sending = true;
-      _status = '送信中... 0/${runes.length}';
+      _status = '送信中... 0/$total';
     });
-    int sent = 0;
-    int skipped = 0;
-    // コード入力モードの状態を追跡 (toggle なので前回の状態を覚えておく)。
-    // _resetState が toggle 系をすべてオフにするので false スタートで OK。
-    bool inCodeMode = false;
-
-    Future<void> ensureCodeMode(bool desired) async {
-      if (inCodeMode == desired) return;
-      debugPrint(
-          '[LineInput] toggle code-input mode ${desired ? 'ON' : 'OFF'}');
-      await _sendOneChar(_scCodeInput, false);
-      inCodeMode = desired;
-      await Future.delayed(_interKeyDelay);
-    }
-
-    debugPrint('[LineInput] === send start: "$text" (${runes.length} codepoints) ===');
     try {
-      await _resetState();
-      for (int i = 0; i < runes.length; i++) {
-        final cp = runes[i];
-        final raw = String.fromCharCode(cp);
-        final asciiMapping = _charToScancode(raw);
-        if (asciiMapping != null) {
-          // ASCII 系: コード入力モードを抜けてから直接送る
-          await ensureCodeMode(false);
-          debugPrint('[LineInput]   send[$i] "$raw"'
-              ' → scancode=0x${asciiMapping.$1.toRadixString(16).padLeft(2, '0')}'
-              ' shift=${asciiMapping.$2}');
-          await _sendOneChar(asciiMapping.$1, asciiMapping.$2);
-          sent++;
-        } else {
-          // SJIS にエンコードしてコード入力モードで送る
-          final sjis = SjisEncoder.encode(cp);
-          if (sjis != null) {
-            await ensureCodeMode(true);
-            debugPrint('[LineInput]   send[$i] "$raw"'
-                ' U+${cp.toRadixString(16).padLeft(4, '0').toUpperCase()}'
-                ' → SJIS=0x${sjis.toRadixString(16).padLeft(4, '0').toUpperCase()}');
-            await _sendSjisHex(sjis);
-            sent++;
-          } else {
-            debugPrint('[LineInput]   skip[$i] "$raw"'
-                ' U+${cp.toRadixString(16).padLeft(4, '0').toUpperCase()}'
-                ' (SJIS にマップなし)');
-            skipped++;
-          }
-        }
-        if ((i & 0x07) == 0 && mounted) {
-          setState(() {
-            _status = '送信中... ${i + 1}/${runes.length}';
-          });
-        }
-        await Future.delayed(_interKeyDelay);
-      }
-      // 最後にコード入力モードを抜けておく
-      await ensureCodeMode(false);
-      debugPrint('[LineInput] === send done: sent=$sent skipped=$skipped ===');
+      final r = await _typer.typeText(text, onProgress: (done, total) {
+        if (mounted) setState(() => _status = '送信中... $done/$total');
+      });
       if (mounted) {
         // 履歴に追加 (重複は先頭に移動 + 永続化) し、入力欄をクリア。
         widget.mode.addToHistory(text);
         widget.controller.clear();
         setState(() {
-          _status = '完了 (送信 $sent 文字, スキップ $skipped 文字)';
+          _status = '完了 (送信 ${r.sent} 文字, スキップ ${r.skipped} 文字)';
         });
       }
     } catch (e) {
@@ -2569,65 +2586,6 @@ class _LineInputBodyState extends State<_LineInputBody> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _focusNode.requestFocus();
     });
-  }
-
-  /// SJIS のコードを 4 桁 hex (16-bit 値 MSB から) として X68000 のキー入力で送る。
-  /// コード入力モードに入っている前提。
-  Future<void> _sendSjisHex(int sjisCode) async {
-    for (int shift = 12; shift >= 0; shift -= 4) {
-      final hex = (sjisCode >> shift) & 0x0F;
-      final scancode = _hexDigitToScancode(hex);
-      debugPrint('[LineInput]     hex ${hex.toRadixString(16).toUpperCase()}'
-          ' → scancode=0x${scancode.toRadixString(16)}');
-      await _sendOneChar(scancode, false);
-      await Future.delayed(_intraKeyDelay);
-    }
-  }
-
-  /// 0..F の hex 数字に対応する X68k スキャンコードを返す
-  /// (0-9 は数字行、A-F は A-F キー、いずれも SHIFT 不要)。
-  static int _hexDigitToScancode(int hex) {
-    if (hex < 10) return _digitScancodes[hex];
-    return _letterScancodes[hex - 10]; // A..F → letterScancodes[0..5]
-  }
-
-  /// 送信前に X68000 のキーボード状態をクリーンに戻す。
-  Future<void> _resetState() async {
-    debugPrint('[LineInput] reset: release modifiers');
-    // 押下中の可能性がある修飾キーを強制 release (no-op の場合も含めて安全)。
-    for (final code in _modifiersToRelease) {
-      widget.midi.sendNoteOff(widget.channel, code);
-    }
-    await Future.delayed(_intraKeyDelay);
-
-    // 観測中の LED が点灯している toggle key を押してオフに戻す。
-    final leds = widget.shared.ledOn;
-    debugPrint('[LineInput] reset: ledOn snapshot = '
-        '${leds.map((c) => '0x${c.toRadixString(16)}').join(',')}');
-    for (final code in _toggleKeysToClear) {
-      if (leds.contains(code)) {
-        debugPrint('[LineInput] reset: toggle off 0x${code.toRadixString(16)}');
-        widget.midi.sendNoteOn(widget.channel, code, 127);
-        await Future.delayed(_intraKeyDelay);
-        widget.midi.sendNoteOff(widget.channel, code);
-        await Future.delayed(_interKeyDelay);
-      }
-    }
-  }
-
-  Future<void> _sendOneChar(int scancode, bool needShift) async {
-    final ch = widget.channel;
-    if (needShift) {
-      widget.midi.sendNoteOn(ch, _scShift, 127);
-      await Future.delayed(_intraKeyDelay);
-    }
-    widget.midi.sendNoteOn(ch, scancode, 127);
-    await Future.delayed(_intraKeyDelay);
-    widget.midi.sendNoteOff(ch, scancode);
-    if (needShift) {
-      await Future.delayed(_intraKeyDelay);
-      widget.midi.sendNoteOff(ch, _scShift);
-    }
   }
 
   void _clear() {
@@ -2655,9 +2613,7 @@ class _LineInputBodyState extends State<_LineInputBody> {
   Future<void> _pressFunctionKey(int scancode) async {
     debugPrint('[LineInput] function key: scancode=0x'
         '${scancode.toRadixString(16).padLeft(2, '0')}');
-    widget.midi.sendNoteOn(widget.channel, scancode, 127);
-    await Future.delayed(_intraKeyDelay);
-    widget.midi.sendNoteOff(widget.channel, scancode);
+    await _typer.sendOneChar(scancode, false);
     _focusNode.requestFocus();
   }
 
