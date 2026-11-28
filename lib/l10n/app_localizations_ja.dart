@@ -318,4 +318,7 @@ class AppLocalizationsJa extends AppLocalizations {
   @override
   String get linkDiagHint =>
       '入力が実機の端子に届くまでの時間は、往復時間のおおむね半分〜全体です。「無線のみ」はアダプタ内部の処理時間を除いた値です。';
+
+  @override
+  String get keyboardRightClickToggleHint => '※キーを右クリックするとトグルします';
 }

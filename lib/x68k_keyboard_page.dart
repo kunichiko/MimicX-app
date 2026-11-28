@@ -7,6 +7,7 @@
 
 import 'dart:async';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -412,10 +413,11 @@ class StandardX68kMode extends ChannelMode {
 // 複数キー同時押し用 sticky 状態の共有コントローラ
 //
 // マウスクリック (= デスクトップ) では指 1 本ぶんしか押せないため、
-//   - 左クリック (左タップ): Modifier キー (SHIFT/CTRL/OPT/XF) は自動 sticky、
-//                          すでに stuck のキーは 1 クリックで解除
-//   - 右クリック        : 任意キーの sticky を toggle
-// という UX を提供する。タッチ入力 (kind != mouse) では従来通り押下中だけ
+//   - 左クリック: 全キー Momentary (押している間だけ)。
+//                すでに stuck のキーは 1 クリックで解除のみ
+//   - 右クリック: 全キー Alternate (押すたびに sticky を toggle)
+// という UX を提供する。以前は左クリックでも Modifier (SHIFT/CTRL/OPT/XF) だけ
+// 自動 sticky にしていたが、普通に押したい場面と区別できないため右クリックに統一した。タッチ入力 (kind != mouse) では従来通り押下中だけ
 // 反応する。AppBar の "全解除" ボタンと本体側で状態を共有するためにこの
 // ChangeNotifier 経由でやり取りする。
 // ===========================================================================
@@ -449,21 +451,6 @@ class StickyKeyController extends ChangeNotifier {
   /// AppBar の解除ボタンはこの参照を経由して body の処理を呼ぶ。
   VoidCallback? onReleaseAllRequested;
 }
-
-/// 左クリック (kind == mouse) で自動 sticky する Modifier 系スキャンコード。
-/// LED 系 (かな/CAPS/INS 等) は X68k 側で push 1 回でトグルする仕様なので、
-/// sticky 化しなくてもデスクトップから操作可能。
-const Set<int> _stickyModifierScancodes = {
-  0x55, // XF1
-  0x56, // XF2
-  0x57, // XF3
-  0x58, // XF4
-  0x59, // XF5
-  0x70, // SHIFT
-  0x71, // CTRL
-  0x72, // OPT.1
-  0x73, // OPT.2
-};
 
 // ===========================================================================
 // キーボード本体 Widget。AppBar 以外のすべての本体ロジック
@@ -788,20 +775,14 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
   }
 
   /// 左クリック / タップ時の振り分け。
-  ///   - kind == mouse かつ stuck   : 解除のみ (押下は発生させない)
-  ///   - kind == mouse かつ sticky 対象 modifier : 自動 sticky
-  ///   - それ以外 : 通常の momentary press (タッチ動作互換)
-  /// 「sticky 化または解除されたのでこのタップは release を発火させない」場合
-  /// に true を返す。
+  ///   - kind == mouse かつ stuck : 解除のみ (押下は発生させない)
+  ///   - それ以外 : 通常の momentary press (Modifier を含む全キー)
+  /// 「sticky 解除したのでこのタップは release を発火させない」場合に true を返す。
   bool _handleKeyDown(int code, TapDownDetails details, BuildContext keyCtx,
       List<String> labels) {
     if (details.kind == PointerDeviceKind.mouse) {
       if (widget.stickyController.isStuck(code)) {
         _unstickKey(code);
-        return true;
-      }
-      if (_stickyModifierScancodes.contains(code)) {
-        _stickKey(code);
         return true;
       }
     }
@@ -1365,11 +1346,24 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
   /// fillHeight で行高を伸ばすときの上限 (キー幅 u に対する比)。
   static const double _maxHPerU = 1.25;
 
+  /// デスクトップ (macOS / Windows / Linux) ではキーボード上端に「右クリックで
+  /// トグル」の説明文を出す帯を確保する。マウス操作が前提の環境だけに出す
+  /// (タッチの iOS / Android では右クリックが無いので出さない)。
+  static bool get _isDesktop => switch (defaultTargetPlatform) {
+        TargetPlatform.macOS ||
+        TargetPlatform.windows ||
+        TargetPlatform.linux =>
+          true,
+        _ => false,
+      };
+  static const double _hintBandH = 20.0;
+  double get _topBand => _isDesktop ? _hintBandH : 0.0;
+
   /// [_buildKeyboard] で組んだときのキーボードの高さ (u の計算は _buildKeyboard と
   /// 同じ)。[hPerU] は行高のキー幅比 (既定 = fillHeight なしの高さ)。
   double _keyboardHeight(BoxConstraints constraints, {double hPerU = _hPerU}) {
     const outerPadding = 16.0;
-    const innerPadTotal = 8.0 * 2;
+    final innerPadTotal = 8.0 * 2 + _topBand;
     double u = (constraints.maxWidth - outerPadding) / _totalW;
     if (constraints.maxHeight.isFinite) {
       final availableH = constraints.maxHeight - innerPadTotal;
@@ -1385,7 +1379,8 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
     // 各キーは declared width 内にパディングを内包するため、unit 計算は単純な分割で OK
     final outerPadding = 16.0;
     final innerPad = 8.0;
-    final innerPadTotal = innerPad * 2;
+    final topBand = _topBand;
+    final innerPadTotal = innerPad * 2 + topBand;
 
     final availableW = constraints.maxWidth - outerPadding;
     final uByWidth = availableW / _totalW;
@@ -1419,7 +1414,7 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
     // Y 位置: function row(h) + gap(0.15h) + 累積行
     final fnRowH = h;
     final fnGap = h * 0.15;
-    final yRow1 = innerPad + fnRowH + fnGap;
+    final yRow1 = innerPad + topBand + fnRowH + fnGap;
     final yRow2 = yRow1 + h;
     final yRow3 = yRow2 + h;
     final yRow4 = yRow3 + h;
@@ -1443,7 +1438,8 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
       clipBehavior: Clip.none,
       children: [
           Padding(
-            padding: EdgeInsets.all(innerPad),
+            padding: EdgeInsets.fromLTRB(
+                innerPad, innerPad + topBand, innerPad, innerPad),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1458,6 +1454,27 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
               ],
             ),
           ),
+          // 説明文: ファンクションキー列の上、左端 (BREAK の上) に寄せる。
+          // キーとの間に隙間を空けるため帯の上寄りに置く。
+          if (topBand > 0)
+            Positioned(
+              left: innerPad + 4,
+              width: u * _mainAreaW,
+              top: innerPad - 4,
+              height: 12,
+              child: IgnorePointer(
+                child: Text(
+                  AppLocalizations.of(context)!.keyboardRightClickToggleHint,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF9E9E9E),
+                    fontSize: 11,
+                    height: 1.0,
+                  ),
+                ),
+              ),
+            ),
           // Return キー (縦 2 段、幅 1.9u で BS と右端揃え)
           Positioned(
             left: xReturn,
@@ -1883,10 +1900,27 @@ class _X68kKeyboardBodyState extends State<_X68kKeyboardBody> {
 //   CC ch=mouse, control=0x30(dX)/0x31(dY), value=64+delta (-64..+63)
 // =============================================================================
 
-class _TrackpadArea extends StatelessWidget {
+class _TrackpadArea extends StatefulWidget {
   final MidiService midi;
   final int channel;
   const _TrackpadArea({required this.midi, required this.channel});
+
+  @override
+  State<_TrackpadArea> createState() => _TrackpadAreaState();
+}
+
+class _TrackpadAreaState extends State<_TrackpadArea> {
+  // トラックパッド面でのクリックを左右ボタンの表示に反映するためのフラグ。
+  // (面のタップ = L、面の右クリック = R)
+  final ValueNotifier<bool> _surfaceLeft = ValueNotifier(false);
+  final ValueNotifier<bool> _surfaceRight = ValueNotifier(false);
+
+  @override
+  void dispose() {
+    _surfaceLeft.dispose();
+    _surfaceRight.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1895,15 +1929,24 @@ class _TrackpadArea extends StatelessWidget {
       child: Row(
         children: [
           _MouseButton(
-            midi: midi, channel: channel, note: 0,  // 左ボタン
+            midi: widget.midi, channel: widget.channel, note: 0,  // 左ボタン
             label: 'L',
+            externalPressed: _surfaceLeft,
           ),
           const SizedBox(width: 6),
-          Expanded(child: _TrackpadSurface(midi: midi, channel: channel)),
+          Expanded(
+            child: _TrackpadSurface(
+              midi: widget.midi,
+              channel: widget.channel,
+              leftIndicator: _surfaceLeft,
+              rightIndicator: _surfaceRight,
+            ),
+          ),
           const SizedBox(width: 6),
           _MouseButton(
-            midi: midi, channel: channel, note: 1,  // 右ボタン
+            midi: widget.midi, channel: widget.channel, note: 1,  // 右ボタン
             label: 'R',
+            externalPressed: _surfaceRight,
           ),
         ],
       ),
@@ -1916,11 +1959,14 @@ class _MouseButton extends StatefulWidget {
   final int channel;
   final int note;
   final String label;
+  /// トラックパッド面のクリックなど、ボタン以外の操作で押下表示にするフラグ。
+  final ValueListenable<bool> externalPressed;
   const _MouseButton({
     required this.midi,
     required this.channel,
     required this.note,
     required this.label,
+    required this.externalPressed,
   });
   @override
   State<_MouseButton> createState() => _MouseButtonState();
@@ -1948,24 +1994,31 @@ class _MouseButtonState extends State<_MouseButton> {
       onTapDown: (_) => _down(),
       onTapUp: (_) => _up(),
       onTapCancel: () => _up(),
-      child: Container(
-        width: 56,
-        decoration: BoxDecoration(
-          color: _pressed ? const Color(0xFF505050) : const Color(0xFF222222),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-            color: _pressed ? Colors.white : const Color(0xFF555555),
-            width: _pressed ? 2 : 1,
-          ),
+      child: ValueListenableBuilder<bool>(
+        valueListenable: widget.externalPressed,
+        builder: (context, external, _) => _buildFace(_pressed || external),
+      ),
+    );
+  }
+
+  Widget _buildFace(bool pressed) {
+    return Container(
+      width: 56,
+      decoration: BoxDecoration(
+        color: pressed ? const Color(0xFF505050) : const Color(0xFF222222),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: pressed ? Colors.white : const Color(0xFF555555),
+          width: pressed ? 2 : 1,
         ),
-        child: Center(
-          child: Text(
-            widget.label,
-            style: TextStyle(
-              color: _pressed ? Colors.white : Colors.grey.shade300,
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-            ),
+      ),
+      child: Center(
+        child: Text(
+          widget.label,
+          style: TextStyle(
+            color: pressed ? Colors.white : Colors.grey.shade300,
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
           ),
         ),
       ),
@@ -1976,7 +2029,16 @@ class _MouseButtonState extends State<_MouseButton> {
 class _TrackpadSurface extends StatefulWidget {
   final MidiService midi;
   final int channel;
-  const _TrackpadSurface({required this.midi, required this.channel});
+  /// 面をタップ (= 左クリック) したときに L ボタンを光らせる。
+  final ValueNotifier<bool> leftIndicator;
+  /// 面を右クリックしている間 R ボタンを光らせる。
+  final ValueNotifier<bool> rightIndicator;
+  const _TrackpadSurface({
+    required this.midi,
+    required this.channel,
+    required this.leftIndicator,
+    required this.rightIndicator,
+  });
   @override
   State<_TrackpadSurface> createState() => _TrackpadSurfaceState();
 }
@@ -1985,6 +2047,9 @@ class _TrackpadSurfaceState extends State<_TrackpadSurface> {
   static const int _ccDx = 0x30;
   static const int _ccDy = 0x31;
   static const int _noteLeft = 0;
+  static const int _noteRight = 1;
+  // タップは一瞬で終わるので、L ボタンの点灯はこの時間だけ保つ (視認用)
+  static const Duration _leftFlash = Duration(milliseconds: 120);
   // 1 ピクセル = 何マウスカウントか。実機の感度に合わせて軽く調整可
   static const double _sensitivity = 1.0;
   static const Duration _flushPeriod = Duration(milliseconds: 16);
@@ -2003,9 +2068,17 @@ class _TrackpadSurfaceState extends State<_TrackpadSurface> {
     _flushTimer = Timer.periodic(_flushPeriod, (_) => _flush());
   }
 
+  Timer? _leftFlashTimer;
+  bool _rightDown = false;
+
   @override
   void dispose() {
     _flushTimer?.cancel();
+    _leftFlashTimer?.cancel();
+    // 右クリック中に画面を離れた場合も押しっぱなしを残さない
+    if (_rightDown) {
+      widget.midi.sendNoteOff(widget.channel, _noteRight);
+    }
     super.dispose();
   }
 
@@ -2062,6 +2135,27 @@ class _TrackpadSurfaceState extends State<_TrackpadSurface> {
     Future.delayed(const Duration(milliseconds: 40), () {
       widget.midi.sendNoteOff(widget.channel, _noteLeft);
     });
+    widget.leftIndicator.value = true;
+    _leftFlashTimer?.cancel();
+    _leftFlashTimer = Timer(_leftFlash, () {
+      widget.leftIndicator.value = false;
+    });
+  }
+
+  // マウスの右クリック (macOS / Windows。Mac のトラックパッドの 2 本指クリック
+  // も含む) = 右ボタン。押している間だけ押下する。
+  void _onSecondaryDown(TapDownDetails d) {
+    if (_rightDown) return;
+    _rightDown = true;
+    widget.midi.sendNoteOn(widget.channel, _noteRight, 127);
+    widget.rightIndicator.value = true;
+  }
+
+  void _onSecondaryUp() {
+    if (!_rightDown) return;
+    _rightDown = false;
+    widget.midi.sendNoteOff(widget.channel, _noteRight);
+    widget.rightIndicator.value = false;
   }
 
   @override
@@ -2073,6 +2167,9 @@ class _TrackpadSurfaceState extends State<_TrackpadSurface> {
       onPanEnd: _onPanEnd,
       onPanCancel: _onPanCancel,
       onTap: _onTap,
+      onSecondaryTapDown: _onSecondaryDown,
+      onSecondaryTapUp: (_) => _onSecondaryUp(),
+      onSecondaryTapCancel: _onSecondaryUp,
       child: Container(
         decoration: BoxDecoration(
           color: const Color(0xFF1a1f24),
